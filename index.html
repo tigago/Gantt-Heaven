@@ -1731,7 +1731,22 @@ document.addEventListener('keydown', e => {
 });
 window.addEventListener('resize', () => render());
 // alterações não salvas em arquivo: o navegador pergunta antes de fechar a guia/janela ou recarregar
-window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', e => {
+  // confirma a edição em andamento (ex.: observação sendo digitada), senão ela não contaria como alteração
+  const ae = document.activeElement;
+  const editing = ae && ae !== document.body && ae.matches && ae.matches('input[type=text],input:not([type]),input[type=number],textarea') && !ae.closest('dialog');
+  const key = editing ? ae.dataset.k : null;
+  if (editing) ae.blur();
+  if (!dirty) return;
+  e.preventDefault(); e.returnValue = '';
+  // se o usuário clicar em Cancelar, a página continua: devolve o foco ao campo que estava sendo editado
+  if (editing) setTimeout(() => restoreEditFocus(ae, key), 0);
+});
+function restoreEditFocus(el, key) {
+  const t = el && el.isConnected ? el : (key ? document.querySelector(`[data-k="${CSS.escape(key)}"]`) : null);
+  if (!t) return;
+  try { window.focus(); t.focus({ preventScroll: true }); if (t.setSelectionRange && (t.type === 'text' || t.tagName === 'TEXTAREA')) { const n = t.value.length; t.setSelectionRange(n, n); } } catch (e) {}
+}
 
 // =====================================================================
 // ============================ FINANÇAS ================================
