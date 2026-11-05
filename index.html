@@ -256,6 +256,17 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
 <dialog id="csvDlg">
   <form class="dlg" id="csvForm" method="dialog">
     <h2>Exportar tabela em CSV</h2>
+    <div class="grid2">
+      <label>De<input type="date" name="from" required></label>
+      <label>Até<input type="date" name="to" required></label>
+    </div>
+    <div id="csvPresets" class="presets">
+      <button type="button" data-p="project">Projeto inteiro</button>
+      <button type="button" data-p="month">Este mês</button>
+      <button type="button" data-p="nextmonth">Próximo mês</button>
+      <button type="button" data-p="quarter">Este trimestre</button>
+      <button type="button" data-p="30">Próximos 30 dias</button>
+    </div>
     <div><span class="lbl">Colunas</span><div id="csvCols" class="colpick"></div></div>
     <label>Separador<select name="sep"><option value=";">Ponto e vírgula ( ; ) — Excel em português</option><option value=",">Vírgula ( , )</option><option value="tab">Tabulação</option></select></label>
     <div id="csvInfo" style="color:var(--muted);font-size:12px"></div>
@@ -277,7 +288,7 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
       <tr><td>Membros</td><td>Botão 👥 Membros. Clique num membro da legenda para destacar as tarefas dele.</td></tr>
       <tr><td>Colunas</td><td>Em ▦ Colunas escolha Dias, Semanas ou Meses para agrupar e sombrear as colunas. Clique no cabeçalho para destacar aquele dia/semana/mês; clique num destaque para removê-lo.</td></tr>
       <tr><td>PDF</td><td>Botão 🖨️ PDF: escolha o período (de/até), se mostra os períodos destacados e se inclui a tabela (e quais colunas); depois salve como PDF no diálogo de impressão.</td></tr>
-      <tr><td>CSV</td><td>Botão 📑 CSV: exporta a tabela de tarefas para planilha, escolhendo as colunas.</td></tr>
+      <tr><td>CSV</td><td>Botão 📑 CSV: exporta para planilha as tarefas de um período (de/até), escolhendo as colunas.</td></tr>
       <tr><td>Atalhos</td><td><kbd>Ctrl+S</kbd> salvar · <kbd>Ctrl+O</kbd> abrir · <kbd>Ctrl+P</kbd> exportar PDF · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> desfazer/refazer · <kbd>Insert</kbd> nova tarefa · <kbd>Delete</kbd> excluir · <kbd>Ctrl</kbd>+roda = zoom</td></tr>
       <tr><td>Salvamento</td><td>Tudo é salvo automaticamente no navegador. Use Salvar para gravar um arquivo <i>.ganttheaven</i> (pode arrastar o arquivo para a janela para abrir).</td></tr>
     </table>
@@ -912,10 +923,11 @@ function csvEsc(v, sep) {
   if (typeof v === 'string' && /^[=+\-@\t\r]/.test(v)) v = "'" + v; // evita que planilhas interpretem como fórmula
   return (v.includes(sep) || /["\r\n]/.test(v)) ? '"' + v.replace(/"/g, '""') + '"' : v;
 }
-function buildCSV(keys, sep) {
+function buildCSV(keys, sep, from = -Infinity, to = Infinity) {
   const cols = [...TABLE_COLS, ...CSV_EXTRA].filter(c => keys.includes(c.key));
   const lines = [cols.map(c => csvEsc(c.label, sep)).join(sep)];
-  state.tasks.forEach((t, i) => lines.push(cols.map(c => csvEsc(CSV_VAL[c.key](t, i), sep)).join(sep)));
+  // mantém a numeração original (#) mesmo filtrando pelo período
+  state.tasks.forEach((t, i) => { if (overlaps(t, from, to)) lines.push(cols.map(c => csvEsc(CSV_VAL[c.key](t, i), sep)).join(sep)); });
   return '﻿' + lines.join('\r\n') + '\r\n'; // BOM para o Excel reconhecer UTF-8 (acentos)
 }
 const csvDlg = $('#csvDlg'), csvForm = $('#csvForm');
@@ -923,23 +935,38 @@ function exportCSV() {
   if (!state.tasks.length) { toast('Adicione tarefas antes de exportar'); return; }
   renderColPicker($('#csvCols'), [...TABLE_COLS, ...CSV_EXTRA], prefs.csvCols);
   csvForm.sep.value = prefs.csvSep;
-  updateCsvInfo();
+  if (!csvForm.from.value || !csvForm.to.value) csvPreset('project'); else updateCsvInfo();
   csvDlg.showModal();
 }
+function csvPreset(kind) {
+  const [a, b] = presetRange(kind);
+  csvForm.from.value = fromIdx(a); csvForm.to.value = fromIdx(b); updateCsvInfo();
+}
 function updateCsvInfo() {
-  const n = pickedCols($('#csvCols')).length;
-  csvForm.querySelector('[type=submit]').disabled = !n;
-  $('#csvInfo').textContent = n ? `${state.tasks.length} linha${state.tasks.length === 1 ? '' : 's'} · ${n} coluna${n === 1 ? '' : 's'}` : 'Escolha ao menos uma coluna.';
+  const n = pickedCols($('#csvCols')).length, info = $('#csvInfo');
+  const a = toIdx(csvForm.from.value), b = toIdx(csvForm.to.value);
+  const okRange = Number.isFinite(a) && Number.isFinite(b) && b >= a;
+  const rows = okRange ? state.tasks.filter(t => overlaps(t, a, b)).length : 0;
+  csvForm.querySelector('[type=submit]').disabled = !n || !okRange || !rows;
+  info.style.color = n && okRange && rows ? '' : 'var(--danger)';
+  info.textContent = !okRange ? 'A data final deve ser igual ou posterior à inicial.'
+    : !n ? 'Escolha ao menos uma coluna.'
+    : !rows ? 'Nenhuma tarefa ocorre nesse período.'
+    : `${plural(b - a + 1)} · ${rows} de ${state.tasks.length} tarefa${state.tasks.length === 1 ? '' : 's'} · ${n} coluna${n === 1 ? '' : 's'}`;
 }
 $('#csvCols').addEventListener('change', updateCsvInfo);
+csvForm.from.addEventListener('input', updateCsvInfo);
+csvForm.to.addEventListener('input', updateCsvInfo);
+$('#csvPresets').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (b) csvPreset(b.dataset.p); });
 $('#csvCancel').onclick = () => csvDlg.close();
 csvForm.addEventListener('submit', async e => {
   e.preventDefault();
   const keys = pickedCols($('#csvCols')); if (!keys.length) return;
+  const from = toIdx(csvForm.from.value), to = toIdx(csvForm.to.value); if (!(to >= from)) return;
   const sepKey = csvForm.sep.value, sep = sepKey === 'tab' ? '\t' : sepKey;
   prefs.csvCols = keys; prefs.csvSep = sepKey; savePrefs();
   csvDlg.close();
-  const data = buildCSV(keys, sep);
+  const data = buildCSV(keys, sep, from, to);
   const name = (state.name || 'projeto').replace(/[\\/:*?"<>|]+/g, '_') + '.csv';
   if (window.showSaveFilePicker) {
     try {
@@ -962,14 +989,20 @@ function projectSpan() {
   return [Math.min(...state.tasks.map(t => t.start)), Math.max(...state.tasks.map(t => t.start + t.duration)) - 1];
 }
 const overlaps = (t, from, to) => t.start <= to && t.start + t.duration - 1 >= from;
-function pdfPreset(kind) {
+// intervalo [a, b] (inclusive) de um atalho de período
+function presetRange(kind) {
   const today = todayIdx();
   let a, b;
-  if (kind === 'project') { [a, b] = projectSpan(); a -= 1; b += 3; } // folga para nomes fora das barras
+  if (kind === 'project') [a, b] = projectSpan();
   else if (kind === 'month') [a, b] = unitRange(today, 'month'), b -= 1;
   else if (kind === 'nextmonth') { const [, e] = unitRange(today, 'month'); [a, b] = unitRange(e, 'month'); b -= 1; }
   else if (kind === 'quarter') { const d = new Date(today * DAY), y = d.getUTCFullYear(), q = Math.floor(d.getUTCMonth() / 3); a = Math.round(Date.UTC(y, q * 3, 1) / DAY); b = Math.round(Date.UTC(y, q * 3 + 3, 1) / DAY) - 1; }
   else if (kind === '30') { a = today; b = today + 29; }
+  return [a, b];
+}
+function pdfPreset(kind) {
+  let [a, b] = presetRange(kind);
+  if (kind === 'project') { a -= 1; b += 3; } // folga para nomes fora das barras
   pdfForm.from.value = fromIdx(a); pdfForm.to.value = fromIdx(b); updatePdfInfo();
 }
 function updatePdfInfo() {
