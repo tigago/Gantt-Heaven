@@ -4,7 +4,7 @@ Editor de diagramas de Gantt em um único arquivo HTML — sem instalação, sem
 
 ## Como usar
 
-Abra `index.html` no Chrome ou Edge (duplo clique). Clique em **?** na barra de ferramentas para ver a ajuda.
+Abra `index.html` no navegador (duplo clique). O programa sempre abre com um projeto vazio — use 📂 Abrir ou 🕘 Recentes para continuar um projeto (o da última sessão também volta com ↶ Desfazer). Clique em **?** para ver a ajuda.
 
 - **Mover tarefa:** arraste a barra.
 - **Alterar início/fim:** arraste a borda esquerda/direita da barra.

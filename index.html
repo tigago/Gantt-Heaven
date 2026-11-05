@@ -1320,7 +1320,7 @@ function printPDF(from, to, onlyIn, opts) {
 }
 
 let toastTimer;
-function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2400); }
+function toast(msg, ms = 2400) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms); }
 
 // ---------- Tooltip ----------
 const tip = $('#tip');
@@ -2658,12 +2658,21 @@ $('#tabs').addEventListener('click', e => {
 });
 
 // ---------- Inicialização ----------
+function emptyProject() {
+  return { name: 'Novo projeto', members: [], categories: [], tasks: [], view: { columns: 'day' }, marks: [], finance: normFinance() };
+}
 (function init() {
-  try { const raw = localStorage.getItem(STORE); state = raw ? deserialize(JSON.parse(raw)) : null; } catch (e) { state = null; }
-  if (!state) state = sampleProject();
+  // sempre começa com um projeto vazio; o da última sessão fica disponível em Desfazer (e em Recentes, se foi salvo)
+  let prev = null;
+  try { const raw = localStorage.getItem(STORE); prev = raw ? deserialize(JSON.parse(raw)) : null; } catch (e) { prev = null; }
+  state = emptyProject();
+  const hasContent = p => p && (p.tasks.length || p.members.length || p.categories.length || p.finance.items.length || p.finance.transactions.length);
   schedule(); render();
-  const first = state.tasks.length ? Math.min(...state.tasks.map(t => t.start)) : todayIdx();
-  scrollToDay(Math.min(first, todayIdx()) - 3);
+  scrollToDay(todayIdx() - 7);
+  if (hasContent(prev)) {
+    undoStack.push(JSON.stringify(prev)); render();
+    toast(`Novo projeto vazio. Para voltar a "${prev.name}" da última sessão, use ↶ Desfazer.`, 7000);
+  }
 })();
 </script>
 </body>
