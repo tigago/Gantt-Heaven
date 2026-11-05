@@ -196,7 +196,7 @@ button.income-btn:hover{background:#eaf7ee}
 .ft .num{text-align:right;font-variant-numeric:tabular-nums}
 .ft th.cur,.ft td.cur{background:#f4f7ff}
 .ft thead th.cur{color:var(--accent);background:#eaf0ff}
-.ft input.fi{width:100%;min-width:84px;border:1px solid transparent;background:transparent;border-radius:5px;padding:5px 6px;font:inherit;color:inherit;text-align:inherit}
+.ft input.fi{width:100%;min-width:108px;border:1px solid transparent;background:transparent;border-radius:5px;padding:5px 6px;font:inherit;color:inherit;text-align:inherit}
 .ft input.fi.name{min-width:220px;text-align:left;font-weight:500}
 .ft input.fi:hover{border-color:var(--line);background:#fff}
 .ft input.fi:focus{outline:none;border-color:var(--accent);background:#fff;box-shadow:0 0 0 2px rgba(79,107,237,.18)}
@@ -459,7 +459,7 @@ dialog.xwide{width:min(940px,96vw)}
     <label>Nome<input type="text" name="name" required placeholder="ex.: Artista 2D"></label>
     <div class="grid2">
       <label>Categoria<input type="text" name="category" list="finCats" placeholder="ex.: Produção"></label>
-      <label>Quantia total (R$)<input type="text" name="amount" inputmode="decimal" placeholder="ex.: 20.000,00"></label>
+      <label>Quantia total (R$)<input type="text" name="amount" inputmode="decimal" placeholder="ex.: R$ 20.000,00"></label>
     </div>
     <div>
       <span class="lbl">Previsão mensal de <span id="itemWord">saída</span></span>
@@ -1713,6 +1713,7 @@ const NUM = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 0, maximumFr
 const money = v => BRL.format(v || 0);
 const moneyShort = v => 'R$ ' + NUM.format(Math.round((v || 0) * 100) / 100);
 const numStr = v => v ? NUM.format(v) : '';
+const moneyIn = v => v ? BRL.format(v) : '';
 const round2 = v => Math.round(v * 100) / 100;
 // aceita "1.234,56", "1234.56", "1.500" (milhar), "R$ 20.000"
 function parseMoney(s) {
@@ -1945,27 +1946,27 @@ function budgetHTML(opts = {}) {
     for (const g of groups) {
       const ct = {}; let cAmt = 0, cDist = 0;
       g.items.forEach(i => { cAmt += i.amount; cDist += planTotal(i); months.forEach(m => ct[m] = (ct[m] || 0) + (i.plan[m] || 0)); });
-      h += `<tr class="g-cat"><td class="stk">${g.cat ? esc(g.cat) : '<i>Sem categoria</i>'}</td><td class="num">${moneyShort(cAmt)}</td>${months.map(m => `<td class="num${m === cur ? ' cur' : ''}">${ct[m] ? moneyShort(ct[m]) : ''}</td>`).join('')}<td class="num">${moneyShort(cDist)}</td><td></td><td></td></tr>`;
+      h += `<tr class="g-cat"><td class="stk">${g.cat ? esc(g.cat) : '<i>Sem categoria</i>'}</td><td class="num">${money(cAmt)}</td>${months.map(m => `<td class="num${m === cur ? ' cur' : ''}">${ct[m] ? money(ct[m]) : ''}</td>`).join('')}<td class="num">${money(cDist)}</td><td></td><td></td></tr>`;
       for (const i of g.items) {
         const dist = planTotal(i), diff = round2(i.amount - dist);
         const outside = Object.keys(i.plan).some(m => m < p.start || m > p.end);
         h += `<tr class="item" data-id="${i.id}"><td class="stk">${RO ? esc(i.name) : `<input class="fi name" data-k="n:${i.id}" value="${esc(i.name)}" title="${esc(i.name)}">`}</td>
-          <td class="num">${RO ? numStr(i.amount) : `<input class="fi money" data-k="a:${i.id}" value="${numStr(i.amount)}" inputmode="decimal">`}</td>
-          ${months.map(m => `<td class="num${m === cur && !RO ? ' cur' : ''}">${RO ? numStr(i.plan[m]) : `<input class="fi money" data-k="p:${i.id}:${m}" value="${numStr(i.plan[m])}" inputmode="decimal" placeholder="·">`}</td>`).join('')}
-          <td class="num" ${outside ? 'title="Inclui meses fora do período exibido"' : ''}>${moneyShort(dist)}${outside ? '*' : ''}</td>
-          <td class="num ${Math.abs(diff) < 0.005 ? 'ok' : 'bad'}">${Math.abs(diff) < 0.005 ? '✓' : (diff > 0 ? 'falta ' : 'excede ') + moneyShort(Math.abs(diff))}</td>
+          <td class="num">${RO ? moneyIn(i.amount) : `<input class="fi money" data-k="a:${i.id}" value="${moneyIn(i.amount)}" inputmode="decimal">`}</td>
+          ${months.map(m => `<td class="num${m === cur && !RO ? ' cur' : ''}">${RO ? moneyIn(i.plan[m]) : `<input class="fi money" data-k="p:${i.id}:${m}" value="${moneyIn(i.plan[m])}" inputmode="decimal" placeholder="·">`}</td>`).join('')}
+          <td class="num" ${outside ? 'title="Inclui meses fora do período exibido"' : ''}>${money(dist)}${outside ? '*' : ''}</td>
+          <td class="num ${Math.abs(diff) < 0.005 ? 'ok' : 'bad'}">${Math.abs(diff) < 0.005 ? '✓' : (diff > 0 ? 'falta ' : 'excede ') + money(Math.abs(diff))}</td>
           <td class="acts"><button data-act="edit-item" title="Editar">✎</button><button data-act="del-item" title="Excluir">✕</button></td></tr>`;
       }
       totAmt += cAmt; totDist += cDist; months.forEach(m => tot[m] = (tot[m] || 0) + (ct[m] || 0));
     }
     monthTotals[type] = tot;
-    h += `<tr class="g-total ${type}"><td class="stk">Total de ${type === 'income' ? 'receitas' : 'gastos'}</td><td class="num">${moneyShort(totAmt)}</td>${months.map(m => `<td class="num${m === cur ? ' cur' : ''}">${tot[m] ? moneyShort(tot[m]) : ''}</td>`).join('')}<td class="num">${moneyShort(totDist)}</td><td></td><td></td></tr>`;
+    h += `<tr class="g-total ${type}"><td class="stk">Total de ${type === 'income' ? 'receitas' : 'gastos'}</td><td class="num">${money(totAmt)}</td>${months.map(m => `<td class="num${m === cur ? ' cur' : ''}">${tot[m] ? money(tot[m]) : ''}</td>`).join('')}<td class="num">${money(totDist)}</td><td></td><td></td></tr>`;
   }
   if (opts.bal === false || types.length < 2) return h + '</tbody></table></div>';
   let acc = 0;
   const bal = months.map(m => round2((monthTotals.income?.[m] || 0) - (monthTotals.expense?.[m] || 0)));
-  h += `<tr class="g-bal"><td class="stk">Saldo previsto do mês</td><td></td>${bal.map((v, k) => `<td class="num${months[k] === cur ? ' cur' : ''} ${v < 0 ? 'neg' : ''}">${v ? moneyShort(v) : ''}</td>`).join('')}<td></td><td></td><td></td></tr>`;
-  h += `<tr class="g-bal"><td class="stk">Saldo acumulado</td><td></td>${bal.map((v, k) => { acc = round2(acc + v); return `<td class="num${months[k] === cur ? ' cur' : ''} ${acc < 0 ? 'neg' : ''}">${moneyShort(acc)}</td>`; }).join('')}<td></td><td></td><td></td></tr>`;
+  h += `<tr class="g-bal"><td class="stk">Saldo previsto do mês</td><td></td>${bal.map((v, k) => `<td class="num${months[k] === cur ? ' cur' : ''} ${v < 0 ? 'neg' : ''}">${v ? money(v) : ''}</td>`).join('')}<td></td><td></td><td></td></tr>`;
+  h += `<tr class="g-bal"><td class="stk">Saldo acumulado</td><td></td>${bal.map((v, k) => { acc = round2(acc + v); return `<td class="num${months[k] === cur ? ' cur' : ''} ${acc < 0 ? 'neg' : ''}">${money(acc)}</td>`; }).join('')}<td></td><td></td><td></td></tr>`;
   return h + '</tbody></table></div>';
 }
 
@@ -2206,10 +2207,10 @@ function openItemDlg(id, type) {
   setItemType(dlgItem.type);
   itemForm.name.value = it ? it.name : '';
   itemForm.category.value = it ? it.category : '';
-  itemForm.amount.value = it ? numStr(it.amount) : '';
+  itemForm.amount.value = it ? moneyIn(it.amount) : '';
   const p = finPeriod();
   const months = [...new Set([...monthList(p.start, p.end), ...Object.keys(it ? it.plan : {})])].sort();
-  $('#itemMonths').innerHTML = months.map(m => `<label class="mcell${m === todayYM() ? ' cur' : ''}"><span>${ymLabel(m)}</span><input type="text" data-m="${m}" value="${it ? numStr(it.plan[m]) : ''}" inputmode="decimal" placeholder="0"></label>`).join('');
+  $('#itemMonths').innerHTML = months.map(m => `<label class="mcell${m === todayYM() ? ' cur' : ''}"><span>${ymLabel(m)}</span><input type="text" data-m="${m}" value="${it ? moneyIn(it.plan[m]) : ''}" inputmode="decimal" placeholder="0"></label>`).join('');
   itemForm.dFrom.value = p.start; itemForm.dTo.value = p.end;
   $('#itemDelete').style.display = it ? '' : 'none';
   updateItemSum();
@@ -2241,7 +2242,7 @@ $('#itemDistrib').onclick = () => {
   ms.forEach(m => { if (!box.querySelector(`[data-m="${m}"]`)) box.insertAdjacentHTML('beforeend', `<label class="mcell"><span>${ymLabel(m)}</span><input type="text" data-m="${m}" inputmode="decimal" placeholder="0"></label>`); });
   box.querySelectorAll('input').forEach(i => {
     const k = ms.indexOf(i.dataset.m);
-    i.value = k < 0 ? '' : numStr((each + (k === ms.length - 1 ? cents - each * ms.length : 0)) / 100);
+    i.value = k < 0 ? '' : moneyIn((each + (k === ms.length - 1 ? cents - each * ms.length : 0)) / 100);
   });
   updateItemSum();
 };
