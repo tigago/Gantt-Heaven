@@ -538,7 +538,7 @@ dialog.xwide{width:min(940px,96vw)}
     <div id="fePeriodD" class="grid2"><label>De<input type="date" name="dFrom"></label><label>Até<input type="date" name="dTo"></label></div>
     <div id="feTypes"><span class="lbl">Incluir</span><div style="display:flex;gap:16px"><label class="check"><input type="checkbox" name="inc"> ↑ Receitas</label><label class="check"><input type="checkbox" name="exp"> ↓ Gastos</label></div></div>
     <label class="check" id="feBalWrap"><input type="checkbox" name="bal"> Linhas de saldo (previsto do mês e acumulado)</label>
-    <label class="check" id="feFiltWrap"><input type="checkbox" name="filt"> Aplicar os filtros atuais da tela (mês, item, tipo)</label>
+    <label class="check" id="feFiltWrap"><input type="checkbox" name="filt"> Aplicar os filtros atuais da tela (mês, serviço, destinatário, tipo)</label>
     <div id="feColsWrap"><span class="lbl">Colunas</span><div id="feCols" class="colpick"></div></div>
     <label id="feSepWrap">Separador<select name="sep"><option value=";">Ponto e vírgula ( ; ) — Excel em português</option><option value=",">Vírgula ( , )</option><option value="tab">Tabulação</option></select></label>
     <div id="feInfo" style="color:var(--muted);font-size:12px"></div>
@@ -2080,7 +2080,7 @@ function fmutate(fn) {
 
 const finEl = $('#finBody');
 let finSub = ['budget', 'history', 'disb'].includes(prefs.finSub) ? prefs.finSub : 'budget';
-let finFilter = { month: '', item: '', dir: '' }, disbType = 'expense', lastTxEdited = null;
+let finFilter = { month: '', item: '', rec: '', dir: '' }, disbType = 'expense', lastTxEdited = null;
 
 function renderFinance() {
   document.body.dataset.tab = prefs.tab === 'finance' ? 'finance' : 'gantt';
@@ -2166,7 +2166,7 @@ const HIST_CSV_EXTRA = [{ key: 'contractDoc', label: 'Arquivo do contrato' }, { 
 function txList(opts = {}) {
   const useF = opts.filters !== false;
   return txSorted().filter(t =>
-    (!useF || ((!finFilter.month || ymOf(t.date) === finFilter.month) && (!finFilter.item || t.itemId === finFilter.item) && (!finFilter.dir || t.direction === finFilter.dir)))
+    (!useF || ((!finFilter.month || ymOf(t.date) === finFilter.month) && (!finFilter.item || t.itemId === finFilter.item) && (!finFilter.rec || (finFilter.rec === '__none' ? !t.recipientId : t.recipientId === finFilter.rec)) && (!finFilter.dir || t.direction === finFilter.dir)))
     && (!opts.from || t.date >= opts.from) && (!opts.to || t.date <= opts.to));
 }
 function historyHTML(opts = {}) {
@@ -2183,7 +2183,9 @@ function historyHTML(opts = {}) {
     <button data-act="docs-folder" title="Pasta onde ficam as notas fiscais e comprovantes (preenche o caminho dos anexos automaticamente)">📁 Pasta dos documentos${f.docsRoot ? ' ✓' : ''}</button><button data-act="docs-refresh" title="${f.docsRoot ? 'Atualizar a lista de arquivos da pasta dos documentos (reseleciona a mesma pasta)' : 'Configurar a pasta dos documentos'}">🔄</button>
     <div class="sep"></div>
     <select id="fMonth" title="Filtrar por mês"><option value="">Todos os meses</option>${months.map(m => `<option value="${m}"${finFilter.month === m ? ' selected' : ''}>${ymLong(m)}</option>`).join('')}</select>
-    <select id="fItem" title="Filtrar por item"><option value="">Todos os itens</option>${f.items.map(i => `<option value="${i.id}"${finFilter.item === i.id ? ' selected' : ''}>${esc(itemLabel(i))}</option>`).join('')}</select>
+    <select id="fItem" title="Filtrar por serviço (item da planilha)"><option value="">Todos os serviços</option>${f.items.map(i => `<option value="${i.id}"${finFilter.item === i.id ? ' selected' : ''}>${esc(itemLabel(i))}</option>`).join('')}</select>
+    <select id="fRec" title="Filtrar por destinatário / origem"><option value="">Todos os destinatários</option>${[...f.recipients].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')).map(r => `<option value="${r.id}"${finFilter.rec === r.id ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}<option value="__none"${finFilter.rec === '__none' ? ' selected' : ''}>— sem destinatário —</option></select>
+    ${finFilter.month || finFilter.item || finFilter.rec || finFilter.dir ? '<button data-act="clear-filters" title="Remover todos os filtros">✖ Filtros</button>' : ''}
     <select id="fDir" title="Filtrar por tipo"><option value="">Entradas e saídas</option><option value="out"${finFilter.dir === 'out' ? ' selected' : ''}>Só saídas</option><option value="in"${finFilter.dir === 'in' ? ' selected' : ''}>Só entradas</option></select>
     <div class="sep"></div>
     <button data-act="exp-pdf" title="Exportar o histórico em PDF">🖨️ PDF</button><button data-act="exp-csv" title="Exportar o histórico em CSV">📑 CSV</button>
@@ -2322,6 +2324,7 @@ finEl.addEventListener('click', e => {
     case 'edit-tx': openTxDlg(id); break;
     case 'del-tx': { const t = state.finance.transactions.find(x => x.id === id); if (t && confirm(`Excluir a transação de ${money(t.amount)} em ${fmtDateBR(t.date)}?`)) fmutate(() => state.finance.transactions = state.finance.transactions.filter(x => x.id !== id)); break; }
     case 'recipients': openRecDlg(); break;
+    case 'clear-filters': finFilter = { month: '', item: '', rec: '', dir: '' }; render(); break;
     case 'docs-folder': openDocsDlg(); break;
     case 'docs-refresh': refreshDocsFolder(); break;
     case 'exp-pdf': openFinExport(finSub, 'pdf'); break;
@@ -2370,6 +2373,7 @@ finEl.addEventListener('change', e => {
   }
   if (t.id === 'fMonth') { finFilter.month = t.value; render(); return; }
   if (t.id === 'fItem') { finFilter.item = t.value; render(); return; }
+  if (t.id === 'fRec') { finFilter.rec = t.value; render(); return; }
   if (t.id === 'fDir') { finFilter.dir = t.value; render(); return; }
   const k = t.dataset.k; if (!k) return;
   if (k.startsWith('c:')) { // renomeia a categoria: todos os itens dela, do mesmo tipo
@@ -2494,7 +2498,7 @@ function openTxDlg(id) {
   $('#txTitle').textContent = t ? 'Editar transação' : 'Nova transação';
   txForm.date.value = t ? t.date : fromIdx(todayIdx());
   txForm.amount.value = t ? numStr(t.amount) : '';
-  fillTxSelects(t ? t.itemId : finFilter.item || '', t ? t.recipientId : '');
+  fillTxSelects(t ? t.itemId : finFilter.item || '', t ? t.recipientId : (finFilter.rec !== '__none' && finFilter.rec) || '');
   dlgTx.contract = t ? t.contract : false; dlgTx.hadContractDoc = !!(t && t.contractDoc);
   txForm.notes.value = t ? t.notes : '';
   dlgTx.att = Object.fromEntries(ATT_KINDS.map(k => [k, t && t[k] ? { ...t[k] } : null]));
@@ -2666,8 +2670,8 @@ function openFinExport(view, fmt) {
   const tx = txSorted(); feForm.dFrom.value = tx.length ? tx[0].date : ''; feForm.dTo.value = tx.length ? tx[tx.length - 1].date : '';
   feForm.inc.checked = view === 'budget' || disbType === 'income'; feForm.exp.checked = view === 'budget' || disbType === 'expense';
   feForm.bal.checked = true;
-  feForm.filt.checked = !!(finFilter.month || finFilter.item || finFilter.dir);
-  feForm.filt.disabled = !(finFilter.month || finFilter.item || finFilter.dir);
+  feForm.filt.checked = !!(finFilter.month || finFilter.item || finFilter.rec || finFilter.dir);
+  feForm.filt.disabled = !(finFilter.month || finFilter.item || finFilter.rec || finFilter.dir);
   feForm.sep.value = prefs.csvSep || ';';
   setFeFmt(fmt);
   feDlg.showModal();
@@ -2709,7 +2713,8 @@ function buildFinPrintHTML(view, o) {
   } else {
     body = historyHTML({ print: true, from: o.from, to: o.to, filters: o.filters, cols: o.cols });
     sub = o.from || o.to ? `${o.from ? fmtDateBR(o.from) : 'início'} → ${o.to ? fmtDateBR(o.to) : 'hoje'}` : 'Todas as transações';
-    if (o.filters && finFilter.item) sub += ` · item: ${itemLabel(finItem(finFilter.item))}`;
+    if (o.filters && finFilter.item) sub += ` · serviço: ${itemLabel(finItem(finFilter.item))}`;
+    if (o.filters && finFilter.rec) sub += ` · destinatário: ${finFilter.rec === '__none' ? 'sem destinatário' : (finRec(finFilter.rec) || {}).name || ''}`;
     if (o.filters && finFilter.dir) sub += finFilter.dir === 'out' ? ' · só saídas' : ' · só entradas';
   }
   const now = new Date();
