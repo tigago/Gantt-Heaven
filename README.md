@@ -18,4 +18,11 @@ Abra `index.html` no Chrome ou Edge (duplo clique). Clique em **?** na barra de 
 - **CSV:** botão 📑 CSV exporta para planilha as tarefas de um período (de/até ou atalhos), com escolha de colunas (inclui extras: progresso, dependências, notas) e separador.
 - **Atalhos:** `Ctrl+Z`/`Ctrl+Y` desfazer/refazer, `Insert` nova tarefa, `Delete` excluir, `Enter` editar, `Ctrl` + roda do mouse = zoom.
 
+## Finanças (aba 💰)
+
+- **Planilha Orçamentária:** registre previsões de gastos e receitas (nome, categoria, quantia total e previsão por mês). Edite os valores direto nas células, como numa planilha; a coluna Diferença avisa se a distribuição mensal não fecha com a quantia. Totais por categoria, saldo previsto do mês e acumulado.
+- **Histórico de Pagamento:** transações em ordem cronológica, cada uma ligada a um item da planilha, com tipo (saída por padrão / entrada), destinatário (nome, telefone, e-mail, chave Pix), contrato, observação, **Nota Fiscal** e **Comprovante** (PDF, PNG, JPG ou JPEG — escolha o arquivo e/ou cole o caminho completo).
+- **Desembolso:** previsto × realizado por item e por mês, com % pago e barras de progresso.
+- Cada sub-aba tem exportação 🖨️ PDF e 📑 CSV com escolha de período (e de colunas, no histórico).
+
 As durações são em dias corridos (fins de semana aparecem sombreados).
