@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gantt Heaven</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 viewBox%3D%22435 309 1060 1060%22%3E%3Crect x%3D%22435%22 y%3D%22309%22 width%3D%221060%22 height%3D%221060%22 rx%3D%22190%22 fill%3D%22%23FCE8EF%22%2F%3E%3Cpath d%3D%22M521%2C978V880A180%2C180 0 0 1 701%2C700H1229A180%2C180 0 0 1 1409%2C880V978%22 fill%3D%22none%22 stroke%3D%22%23941245%22 stroke-width%3D%2230%22%2F%3E%3Cg fill%3D%22%23941245%22%3E%3Cpath d%3D%22M559.0%2C978.0V942.4A23.0%2C23.0 0 0 1 582.0%2C919.4H823.5A23.0%2C23.0 0 0 1 846.5%2C942.4V978.0Z%22%2F%3E%3Cpath d%3D%22M648.8%2C922.8V853.8A23.0%2C23.0 0 0 1 671.8%2C830.8H736.1A23.0%2C23.0 0 0 1 759.1%2C853.8V922.8Z%22%2F%3E%3Ccircle cx%3D%221222.6%22 cy%3D%22881.4%22 r%3D%2257.5%22%2F%3E%3Cpath d%3D%22M1066.2%2C978.0A56.3%2C56.3 0 0 1 1178.9%2C978.0Z%22%2F%3E%3Cpath d%3D%22M1267.5%2C978.0A56.3%2C56.3 0 0 1 1380.1%2C978.0Z%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E">
 <style>
 :root{
   --row:38px; --head:54px; --left:560px;
@@ -26,6 +27,7 @@ input,textarea,select{font:inherit;color:inherit}
 /* Toolbar */
 #toolbar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#fff;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .logo{font-weight:700;font-size:15px;display:flex;align-items:center;gap:6px;margin-right:4px;white-space:nowrap}
+.logo .applogo{width:26px;height:26px;flex:none}
 .logo span{background:linear-gradient(90deg,#4f6bed,#a371f7);-webkit-background-clip:text;background-clip:text;color:transparent}
 #projName{border:1px solid transparent;border-radius:6px;padding:5px 8px;font-weight:600;font-size:14px;width:200px;background:transparent}
 #projName:hover,#projName:focus{border-color:var(--line);background:#fafbfd;outline:none}
@@ -282,16 +284,44 @@ dialog.xwide{width:min(940px,96vw)}
 .ft.hist .attadd{border:1px dashed #d3d7e2;background:none;color:#9aa3b5;border-radius:6px;padding:3px 8px;font-size:11.5px;opacity:.5}
 .ft.hist tr:hover .attadd{opacity:1}
 .ft.hist .attadd:hover{border-color:var(--accent);color:var(--accent)}
+.menu{position:fixed;z-index:150;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 14px 36px rgba(20,25,40,.2);width:420px;max-width:96vw;padding:6px;display:none}
+.menu.open{display:block}
+.menu .mhead{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:6px 10px 4px}
+.menu .mempty{color:var(--muted);padding:10px;font-size:12.5px}
+.menu .mi{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;cursor:pointer}
+.menu .mi:hover{background:#f0f2f8}
+.menu .mic{font-size:18px}
+.menu .mtx{display:flex;flex-direction:column;min-width:0;flex:1}
+.menu .mtx .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.menu .mtx .t em{font-style:normal;color:var(--accent);font-weight:500;font-size:12px}
+.menu .mtx small{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.menu .x{border:none;background:none;color:var(--muted);opacity:0;padding:3px 7px}
+.menu .mi:hover .x{opacity:1}
+.menu .x:hover{background:#e3e6ee;color:var(--text)}
+.menu .mfoot{display:flex;justify-content:space-between;border-top:1px solid var(--line);margin-top:4px;padding:6px 4px 2px}
+.menu .mfoot button{border:none;background:none;color:var(--accent);padding:4px 8px;font-size:12.5px}
+.menu .mfoot button:hover{background:#eef2ff}
 </style>
 </head>
 <body>
 <header id="appbar">
-  <div class="logo">📊 <span>Gantt Heaven</span></div>
+  <div class="logo"><svg class="applogo" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="435 309 1060 1060">
+<rect x="435" y="309" width="1060" height="1060" rx="190" fill="#FCE8EF"/>
+<path d="M521,978V880A180,180 0 0 1 701,700H1229A180,180 0 0 1 1409,880V978" fill="none" stroke="#941245" stroke-width="30"/>
+<g fill="#941245">
+<path d="M559.0,978.0V942.4A23.0,23.0 0 0 1 582.0,919.4H823.5A23.0,23.0 0 0 1 846.5,942.4V978.0Z"/>
+<path d="M648.8,922.8V853.8A23.0,23.0 0 0 1 671.8,830.8H736.1A23.0,23.0 0 0 1 759.1,853.8V922.8Z"/>
+<circle cx="1222.6" cy="881.4" r="57.5"/>
+<path d="M1066.2,978.0A56.3,56.3 0 0 1 1178.9,978.0Z"/>
+<path d="M1267.5,978.0A56.3,56.3 0 0 1 1380.1,978.0Z"/>
+</g>
+</svg><span>Gantt Heaven</span></div>
   <input id="projName" title="Nome do projeto" spellcheck="false">
   <nav id="tabs"><button data-tab="gantt" class="on">📅 Cronograma</button><button data-tab="finance">💰 Finanças</button></nav>
   <span style="flex:1"></span>
   <button id="btnNew" title="Novo projeto">📄 Novo</button>
   <button id="btnOpen" title="Abrir arquivo (Ctrl+O)">📂 Abrir</button>
+  <button id="btnRecent" title="Projetos recentes">🕘 Recentes ▾</button>
   <button id="btnSave" title="Salvar (Ctrl+S)">💾 Salvar</button>
   <button id="btnSaveAs" title="Salvar como (Ctrl+Shift+S)">Salvar como…</button>
   <div class="sep"></div>
@@ -332,6 +362,7 @@ dialog.xwide{width:min(940px,96vw)}
   <div id="finBody"></div>
 </section>
 
+<div id="recentMenu" class="menu"></div>
 <div id="tip"></div>
 <div id="toast"></div>
 <input type="file" id="fileInput" accept=".ganttheaven,.json" hidden>
@@ -516,6 +547,7 @@ dialog.xwide{width:min(940px,96vw)}
       <tr><td>PDF</td><td>Botão 🖨️ PDF: escolha o período (de/até), se mostra os períodos destacados e se inclui a tabela (e quais colunas); depois salve como PDF no diálogo de impressão.</td></tr>
       <tr><td>CSV</td><td>Botão 📑 CSV: exporta para planilha as tarefas de um período (de/até), escolhendo as colunas.</td></tr>
       <tr><td>Finanças</td><td>Aba 💰 Finanças: <b>Planilha Orçamentária</b> (previsões de gastos e receitas por mês — edite direto nas células), <b>Histórico de Pagamento</b> (transações ligadas aos itens da planilha, com destinatários) e <b>Desembolso</b> (previsto × realizado por item e mês).</td></tr>
+      <tr><td>Recentes</td><td>Botão 🕘 Recentes: reabre um dos últimos 10 projetos abertos ou salvos. Quando o navegador permite acesso a arquivos, abre o próprio arquivo (pode pedir permissão); senão, abre a cópia guardada no navegador no momento em que foi aberto/salvo.</td></tr>
       <tr><td>Atalhos</td><td><kbd>Ctrl+S</kbd> salvar · <kbd>Ctrl+O</kbd> abrir · <kbd>Ctrl+P</kbd> exportar PDF · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> desfazer/refazer · <kbd>Insert</kbd> nova tarefa · <kbd>Delete</kbd> excluir · <kbd>Ctrl</kbd>+roda = zoom</td></tr>
       <tr><td>Salvamento</td><td>Tudo é salvo automaticamente no navegador. Use Salvar para gravar um arquivo <i>.ganttheaven</i> (pode arrastar o arquivo para a janela para abrir).</td></tr>
     </table>
@@ -990,12 +1022,14 @@ async function saveFile(saveAs) {
       if (!fileHandle || saveAs || !fileHandle.name.endsWith(EXT)) fileHandle = await showSaveFilePicker({ suggestedName: suggested, types: saveTypes, excludeAcceptAllOption: true });
       const w = await fileHandle.createWritable(); await w.write(data); await w.close();
       dirty = false; render(); toast(`💾 Salvo em ${fileHandle.name}`);
+      addRecent(fileHandle, state.name, data);
     } catch (e) { if (e.name !== 'AbortError') alert('Erro ao salvar: ' + e.message); }
   } else {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([data], { type: 'application/x-ganttheaven' }));
     a.download = suggested; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     dirty = false; render(); toast('💾 Arquivo baixado');
+    addRecent(null, state.name, data, suggested);
   }
 }
 async function openFile() {
@@ -1007,18 +1041,19 @@ async function openFile() {
     } catch (e) { if (e.name !== 'AbortError') alert('Erro ao abrir: ' + e.message); }
   } else $('#fileInput').click();
 }
-function loadText(text, handle) {
+function loadText(text, handle, fileName) {
   try {
     const s = deserialize(JSON.parse(text));
     undoStack.push(snap()); redoStack.length = 0;
     state = s; schedule(); fileHandle = handle || null; selectedId = null; highlightMember = null; highlightCategory = null;
+    addRecent(handle || null, s.name, text, fileName);
     dirty = false; persist(); render();
     const first = Math.min(...state.tasks.map(t => t.start), todayIdx());
     scrollToDay(first - 3);
     toast(`📂 "${state.name}" aberto`);
   } catch (e) { alert('Não foi possível abrir o arquivo: ' + e.message); }
 }
-$('#fileInput').addEventListener('change', async e => { const f = e.target.files[0]; if (f) loadText(await f.text()); e.target.value = ''; });
+$('#fileInput').addEventListener('change', async e => { const f = e.target.files[0]; if (f) loadText(await f.text(), null, f.name); e.target.value = ''; });
 
 // ---------- Exportar PDF ----------
 // Monta uma página de impressão com o diagrama inteiro; o usuário escolhe "Salvar como PDF".
@@ -1469,7 +1504,7 @@ document.addEventListener('drop', async e => {
   if (!e.dataTransfer.files.length) return;
   e.preventDefault();
   if (dirty && !confirm('Abrir o arquivo solto? Alterações não salvas em arquivo continuam em Desfazer.')) return;
-  loadText(await e.dataTransfer.files[0].text());
+  const df = e.dataTransfer.files[0]; loadText(await df.text(), null, df.name);
 });
 
 // ---------- Diálogo de tarefa ----------
@@ -2521,6 +2556,79 @@ async function exportFinCSV(view, o, sep) {
     toast('📑 CSV baixado');
   }
 }
+
+// ---------- Projetos recentes ----------
+// Para cada projeto aberto/salvo guarda: nome do arquivo, título, data, uma cópia do conteúdo
+// e — quando o navegador permite (File System Access API) — o vínculo com o arquivo original.
+// Assim funciona também no Brave, que desativa essa API por padrão (reabre a cópia salva).
+const RECENT_KEY = 'recents', RECENT_MAX = 10;
+async function getRecents() { try { return (await fileDB.get(RECENT_KEY)) || []; } catch (e) { return []; } }
+async function addRecent(handle, title, data, fileName) {
+  try {
+    const name = handle ? handle.name : (fileName || (title || 'projeto') + EXT);
+    const keep = [];
+    for (const r of await getRecents()) {
+      let same = false;
+      if (handle && r.handle) { try { same = await r.handle.isSameEntry(handle); } catch (e) {} }
+      else if (!handle && !r.handle) same = r.name === name;
+      if (!same) keep.push(r);
+    }
+    keep.unshift({ id: uid(), name, title: title || name, at: Date.now(), handle: handle || null, data: data || null });
+    await fileDB.set(RECENT_KEY, keep.slice(0, RECENT_MAX));
+  } catch (e) {}
+}
+async function removeRecent(id) { try { await fileDB.set(RECENT_KEY, (await getRecents()).filter(r => r.id !== id)); } catch (e) {} }
+function whenLabel(ts) {
+  const d = new Date(ts), now = new Date(), hm = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(), diff = Math.round((day(now) - day(d)) / DAY);
+  return diff === 0 ? `hoje, ${hm}` : diff === 1 ? `ontem, ${hm}` : diff < 7 ? `há ${diff} dias` : d.toLocaleDateString('pt-BR');
+}
+const recentMenu = $('#recentMenu');
+async function toggleRecentMenu(force) {
+  const open = force ?? !recentMenu.classList.contains('open');
+  if (!open) { recentMenu.classList.remove('open'); return; }
+  const btn = $('#btnRecent').getBoundingClientRect();
+  recentMenu.style.left = Math.max(4, Math.min(btn.left, innerWidth - 430)) + 'px'; recentMenu.style.top = (btn.bottom + 6) + 'px';
+  const list = await getRecents();
+  let h = '<div class="mhead">Projetos recentes</div>';
+  if (!list.length) h += '<div class="mempty">Nenhum projeto recente. Os arquivos que você abrir ou salvar aparecerão aqui.</div>';
+  for (const r of list) {
+    let cur = false; try { cur = !!fileHandle && !!r.handle && await r.handle.isSameEntry(fileHandle); } catch (e) {}
+    h += `<div class="mi" data-rid="${r.id}" title="${esc(r.name)}${r.handle ? '' : ' — reabre a cópia guardada neste navegador'}"><span class="mic">${r.handle ? '📄' : '🗂️'}</span><span class="mtx"><span class="t">${esc(r.title)}${cur ? ' <em>· aberto</em>' : ''}</span><small>${esc(r.name)} · ${whenLabel(r.at)}</small></span><button class="x" title="Remover da lista">✕</button></div>`;
+  }
+  h += `<div class="mfoot">${list.length ? '<button data-clear="1">Limpar lista</button>' : '<span></span>'}<button data-open="1">📂 Abrir outro…</button></div>`;
+  recentMenu.innerHTML = h;
+  recentMenu.classList.add('open');
+}
+async function openRecent(id) {
+  const r = (await getRecents()).find(x => x.id === id); if (!r) return;
+  toggleRecentMenu(false);
+  if (dirty && !confirm('Há alterações não salvas em arquivo. Abrir outro projeto mesmo assim?\n(Elas continuam disponíveis em Desfazer.)')) return;
+  if (r.handle && r.handle.queryPermission) {
+    try {
+      let perm = await r.handle.queryPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') perm = await r.handle.requestPermission({ mode: 'readwrite' });
+      if (perm === 'granted') { const f = await r.handle.getFile(); loadText(await f.text(), r.handle); return; }
+    } catch (e) { /* arquivo movido/apagado: usa a cópia */ }
+  }
+  if (r.data) {
+    loadText(r.data, null, r.name);
+    toast(`🗂️ Aberta a cópia de "${r.name}" guardada em ${whenLabel(r.at)}`);
+    return;
+  }
+  if (confirm(`Não foi possível abrir "${r.name}" — talvez tenha sido movido ou apagado.\nRemover da lista de recentes?`)) removeRecent(id);
+}
+$('#btnRecent').addEventListener('click', e => { e.stopPropagation(); toggleRecentMenu(); });
+recentMenu.addEventListener('click', async e => {
+  e.stopPropagation();
+  const item = e.target.closest('.mi');
+  if (e.target.closest('.x') && item) { await removeRecent(item.dataset.rid); toggleRecentMenu(true); return; }
+  if (e.target.closest('[data-clear]')) { if (confirm('Limpar a lista de projetos recentes? (os arquivos não são apagados)')) { try { await fileDB.set(RECENT_KEY, []); } catch (err) {} toggleRecentMenu(true); } return; }
+  if (e.target.closest('[data-open]')) { toggleRecentMenu(false); openFile(); return; }
+  if (item) openRecent(item.dataset.rid);
+});
+document.addEventListener('click', () => toggleRecentMenu(false));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') toggleRecentMenu(false); });
 
 // ---------- Abas ----------
 $('#tabs').addEventListener('click', e => {
