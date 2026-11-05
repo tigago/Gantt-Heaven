@@ -1827,7 +1827,7 @@ async function pickAttachment() {
   } else h = await pickFileClassic();
   if (!ATT_EXT.test(h.name)) throw new Error('Formato não suportado (use PDF, PNG, JPG ou JPEG)');
   let path = '';
-  try { path = await resolveDocPath(h.getFile ? await h.getFile() : h); } catch (e) {}
+  try { path = await resolveDocPath(h.getFile ? await h.getFile() : h, h.getFile ? h : null); } catch (e) {}
   const hid = uid();
   try { await fileDB.set(hid, h); } catch (e) { return { name: h.name, path, hid: '' }; }
   return { name: h.name, path, hid };
@@ -1876,10 +1876,16 @@ function joinDocPath(root, rel) {
 }
 const sameFile = (e, f) => e.name === f.name && e.size === f.size && (!e.lm || !f.lastModified || Math.abs(e.lm - f.lastModified) < 2000);
 // caminho completo de um arquivo escolhido, se ele estiver na pasta dos documentos ('' se não estiver)
-async function resolveDocPath(file) {
+async function resolveDocPath(file, fileHandle) {
   const root = state.finance.docsRoot; if (!root || !file) return '';
   let idx = await getDocIndex();
+  // 1) com acesso a pastas: pergunta ao navegador onde o arquivo está dentro da pasta (funciona para arquivos novos)
+  if (fileHandle && idx && idx.handle && idx.handle.resolve) {
+    try { const segs = await idx.handle.resolve(fileHandle); if (segs && segs.length) return joinDocPath(root, segs.join('/')); } catch (e) {}
+  }
+  // 2) pela lista de arquivos: nome + tamanho + data; se o arquivo foi substituído, só pelo nome (quando ele é único)
   let hit = idx && idx.files.find(e => sameFile(e, file));
+  if (!hit && idx) { const byName = idx.files.filter(e => e.name === file.name); if (byName.length === 1) hit = byName[0]; }
   if (!hit && idx && idx.handle && idx.handle.queryPermission) { // arquivo novo na pasta: atualiza a lista sozinho, se permitido
     try {
       if ((await idx.handle.queryPermission({ mode: 'read' })) === 'granted') {
@@ -1889,6 +1895,7 @@ async function resolveDocPath(file) {
       }
     } catch (e) {}
   }
+  if (!hit && idx) toast(`"${file.name}" não está na lista da pasta dos documentos. Se é um arquivo novo, clique em 🔄 para atualizar a lista e escolha-o de novo.`, 7000);
   return hit ? joinDocPath(root, hit.rel) : '';
 }
 
