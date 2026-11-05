@@ -6,7 +6,7 @@
 <title>Gantt Heaven</title>
 <style>
 :root{
-  --row:38px; --head:54px; --left:460px;
+  --row:38px; --head:54px; --left:560px;
   --bg:#f4f5f9; --line:#e4e7ef; --text:#1d2433; --muted:#6b7385; --accent:#4f6bed; --danger:#d93f3f;
 }
 *{box-sizing:border-box}
@@ -48,13 +48,16 @@ input,textarea,select{font:inherit;color:inherit}
 #timeline{position:sticky;top:0;z-index:4;background:#fff;border-bottom:1px solid var(--line)}
 #list{position:sticky;left:0;z-index:3;background:#fff;border-right:1px solid var(--line);box-shadow:4px 0 8px -6px rgba(0,0,0,.12)}
 #chart{position:relative}
-.cols{display:grid;grid-template-columns:22px 26px 1fr 64px 64px 48px 76px;align-items:center;gap:0 4px;padding-right:8px}
+.cols{display:grid;grid-template-columns:22px 100px 26px 1fr 64px 64px 48px 76px;align-items:center;gap:0 4px;padding-right:8px}
 #corner .cols{height:100%;color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding-top:22px}
 .row{height:var(--row);border-bottom:1px solid #f0f1f5}
 .row.sel{background:#eef2ff}
 .row.dim{opacity:.35}
 .row .handle{cursor:grab;color:#b4bacb;text-align:center;font-size:14px;user-select:none}
 .row .handle:hover{color:var(--text)}
+.row select.catsel{width:100%;min-width:0;font:inherit;font-size:11.5px;border:1.5px dashed #c9cedb;border-radius:999px;padding:2px 4px;background:#fff;color:var(--muted);cursor:pointer;text-overflow:ellipsis;outline:none}
+.row select.catsel.has{border-style:solid;color:var(--text);font-weight:600}
+.row select.catsel:focus{box-shadow:0 0 0 2px rgba(79,107,237,.25)}
 .row .num{color:var(--muted);font-size:11px;text-align:right;padding-right:4px}
 .row input.name{border:1px solid transparent;background:transparent;padding:4px 6px;border-radius:5px;min-width:0;width:100%}
 .row input.name:hover{border-color:var(--line)}
@@ -121,6 +124,11 @@ dialog::backdrop{background:rgba(20,25,40,.35)}
 .dlg select{border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-weight:400;font-size:13px;background:#fff;color:var(--text)}
 .dlg input[type=text],.dlg input[type=date],.dlg input[type=number],.dlg textarea{border:1px solid var(--line);border-radius:7px;padding:7px 9px;color:var(--text);font-weight:400;font-size:13px}
 .dlg input:focus,.dlg textarea:focus{outline:none;border-color:var(--accent)}
+.colpick{display:flex;flex-wrap:wrap;gap:6px}
+.colpick.off{opacity:.4;pointer-events:none}
+.colopt{display:inline-flex !important;flex-direction:row !important;align-items:center;gap:5px !important;border:1px solid var(--line);border-radius:999px;padding:3px 10px 3px 7px;font-weight:500 !important;color:var(--text) !important;cursor:pointer;user-select:none}
+.colopt:has(input:checked){background:#eef2ff;border-color:#c5cff8}
+.colopt input{margin:0}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .presets{display:flex;gap:6px;flex-wrap:wrap}
 .presets button{padding:4px 10px;font-size:12px;border-radius:999px}
@@ -156,6 +164,7 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
   <button id="btnSave" title="Salvar (Ctrl+S)">💾 Salvar</button>
   <button id="btnSaveAs" title="Salvar como (Ctrl+Shift+S)">Salvar como…</button>
   <button id="btnPdf" title="Exportar diagrama em PDF (Ctrl+P)">🖨️ PDF</button>
+  <button id="btnCsv" title="Exportar a tabela de tarefas em CSV (planilha)">📑 CSV</button>
   <div class="sep"></div>
   <button id="btnAdd" class="primary" title="Nova tarefa (Insert)">+ Tarefa</button>
   <button id="btnMembers">👥 Membros</button>
@@ -173,7 +182,7 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
 
 <div id="scroller">
   <div id="grid">
-    <div id="corner"><div class="cols"><span></span><span>#</span><span>Tarefa</span><span>Início</span><span>Fim</span><span style="text-align:right">Dias</span><span style="padding-left:4px">Time</span></div></div>
+    <div id="corner"><div class="cols"><span></span><span>Categoria</span><span>#</span><span>Tarefa</span><span>Início</span><span>Fim</span><span style="text-align:right">Dias</span><span style="padding-left:4px">Time</span></div></div>
     <div id="timeline"></div>
     <div id="list"></div>
     <div id="chart"></div>
@@ -236,8 +245,21 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
       <button type="button" data-p="30">Próximos 30 dias</button>
     </div>
     <label class="check"><input type="checkbox" name="onlyIn" checked> Mostrar só as tarefas que ocorrem no período</label>
+    <label class="check"><input type="checkbox" name="showMarks"> Mostrar períodos destacados <span id="pdfMarksInfo" style="color:var(--muted);font-size:12px"></span></label>
+    <label class="check"><input type="checkbox" name="withTable"> Incluir a tabela de tarefas</label>
+    <div id="pdfCols" class="colpick" title="Colunas da tabela"></div>
     <div id="pdfInfo" style="color:var(--muted);font-size:12px"></div>
     <div class="actions"><span style="flex:1"></span><button type="button" id="pdfCancel">Cancelar</button><button type="submit" class="primary">🖨️ Exportar PDF</button></div>
+  </form>
+</dialog>
+
+<dialog id="csvDlg">
+  <form class="dlg" id="csvForm" method="dialog">
+    <h2>Exportar tabela em CSV</h2>
+    <div><span class="lbl">Colunas</span><div id="csvCols" class="colpick"></div></div>
+    <label>Separador<select name="sep"><option value=";">Ponto e vírgula ( ; ) — Excel em português</option><option value=",">Vírgula ( , )</option><option value="tab">Tabulação</option></select></label>
+    <div id="csvInfo" style="color:var(--muted);font-size:12px"></div>
+    <div class="actions"><span style="flex:1"></span><button type="button" id="csvCancel">Cancelar</button><button type="submit" class="primary">📑 Exportar CSV</button></div>
   </form>
 </dialog>
 
@@ -254,7 +276,8 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
       <tr><td>Categorias</td><td>Botão 🏷️ Categorias. A borda da cápsula mostra a cor da categoria; escolha a categoria da tarefa com duplo clique nela.</td></tr>
       <tr><td>Membros</td><td>Botão 👥 Membros. Clique num membro da legenda para destacar as tarefas dele.</td></tr>
       <tr><td>Colunas</td><td>Em ▦ Colunas escolha Dias, Semanas ou Meses para agrupar e sombrear as colunas. Clique no cabeçalho para destacar aquele dia/semana/mês; clique num destaque para removê-lo.</td></tr>
-      <tr><td>PDF</td><td>Botão 🖨️ PDF: escolha o período (de/até) e salve como PDF no diálogo de impressão.</td></tr>
+      <tr><td>PDF</td><td>Botão 🖨️ PDF: escolha o período (de/até), se mostra os períodos destacados e se inclui a tabela (e quais colunas); depois salve como PDF no diálogo de impressão.</td></tr>
+      <tr><td>CSV</td><td>Botão 📑 CSV: exporta a tabela de tarefas para planilha, escolhendo as colunas.</td></tr>
       <tr><td>Atalhos</td><td><kbd>Ctrl+S</kbd> salvar · <kbd>Ctrl+O</kbd> abrir · <kbd>Ctrl+P</kbd> exportar PDF · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> desfazer/refazer · <kbd>Insert</kbd> nova tarefa · <kbd>Delete</kbd> excluir · <kbd>Ctrl</kbd>+roda = zoom</td></tr>
       <tr><td>Salvamento</td><td>Tudo é salvo automaticamente no navegador. Use Salvar para gravar um arquivo <i>.ganttheaven</i> (pode arrastar o arquivo para a janela para abrir).</td></tr>
     </table>
@@ -265,7 +288,7 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
 <script>
 "use strict";
 // ---------- Constantes e utilidades ----------
-const ROW = 38, HEAD = 54, LEFT = 460, DAY = 86400000;
+const ROW = 38, HEAD = 54, LEFT = 560, DAY = 86400000;
 const STORE = 'gantt-heaven:v1';
 const PALETTE = ['#4f6bed','#e5534b','#2da44e','#d4a72c','#a371f7','#f0883e','#1f9bcf','#db61a2','#57ab5a','#768390','#c2185b','#00897b'];
 const WD = ['dom','seg','ter','qua','qui','sex','sáb'];
@@ -437,8 +460,11 @@ function renderList() {
   let h = '';
   state.tasks.forEach((t, i) => {
     const cat = category(t.category);
-    h += `<div class="row cols${t.id === selectedId ? ' sel' : ''}${dim(t) ? ' dim' : ''}" data-id="${t.id}"${cat ? ` style="box-shadow:inset 4px 0 0 ${cat.color}" title="Categoria: ${esc(cat.name)}"` : ''}>
+    h += `<div class="row cols${t.id === selectedId ? ' sel' : ''}${dim(t) ? ' dim' : ''}" data-id="${t.id}">
       <span class="handle" draggable="true" title="Arraste para reordenar">⠿</span>
+      <select class="catsel${cat ? ' has' : ''}" title="${cat ? 'Categoria: ' + esc(cat.name) : 'Sem categoria'}"${cat ? ` style="border-color:${cat.color};background-color:${cat.color}1f"` : ''}>
+        <option value="">—</option>${state.categories.map(c => `<option value="${c.id}"${c.id === t.category ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="__new">+ Nova…</option>
+      </select>
       <span class="num">${i + 1}</span>
       <input class="name" value="${esc(t.name)}" spellcheck="false" title="${esc(t.name)}">
       <span class="date" title="${fmtLong(t.start)}">${fmt(t.start)}</span>
@@ -757,19 +783,22 @@ $('#fileInput').addEventListener('change', async e => { const f = e.target.files
 
 // ---------- Exportar PDF ----------
 // Monta uma página de impressão com o diagrama inteiro; o usuário escolhe "Salvar como PDF".
-function buildExportHTML(from, to, onlyIn = true) {
+function buildExportHTML(from, to, onlyIn = true, opts = {}) {
+  const cols = TABLE_COLS.filter(c => (opts.cols === undefined ? ALL_TABLE_KEYS : opts.cols || []).includes(c.key));
+  const showMarks = opts.marks !== false;
   if (from === undefined) { [from, to] = projectSpan(); from -= 1; to += 3; }
   const tasks = onlyIn ? state.tasks.filter(t => overlaps(t, from, to)) : state.tasks.slice();
   const start = from, days = to - from + 1;
-  const LW = 400, TOP = 70, PW = 1047, PH = 700; // A4 paisagem com margem de 10mm ≈ 1047×718 px
+  const LW = cols.length ? cols.reduce((a, c) => a + c.w, 0) + 4 * (cols.length - 1) + 12 : 0, TOP = 70, PW = 1047, PH = 700; // A4 paisagem com margem de 10mm ≈ 1047×718 px
   const dw = clamp(Math.floor((PW - LW) / days), 4, 36);
 
   // renderiza com o intervalo do projeto, sem seleção/destaque, e restaura a tela
   const saved = { range, dayW, selectedId, highlightMember, highlightCategory };
   range = { start, days }; dayW = dw; selectedId = null; highlightMember = null; highlightCategory = null;
-  const allTasks = state.tasks;
+  const allTasks = state.tasks, allMarks = state.marks;
   state.tasks = tasks; // só as tarefas exportadas (dependências para tarefas fora do período são omitidas)
-  try { renderTimeline(); renderChart(); } finally { state.tasks = allTasks; }
+  if (!showMarks) state.marks = [];
+  try { renderTimeline(); renderChart(); } finally { state.tasks = allTasks; state.marks = allMarks; }
   const tl = timelineEl.innerHTML, ch = chartEl.innerHTML;
   ({ range, dayW, selectedId, highlightMember, highlightCategory } = saved);
   render();
@@ -780,7 +809,9 @@ function buildExportHTML(from, to, onlyIn = true) {
   if (z >= 0.45) { page = 'A4 landscape'; zoom = z; }
   else { page = `${Math.ceil(W + 76)}px ${Math.ceil(H + 76)}px`; zoom = 1; } // projeto grande: página única do tamanho do diagrama
 
-  const rows = tasks.map((t, i) => `<div class="prow"><span class="pn"${category(t.category) ? ` style="border-left:3px solid ${category(t.category).color}"` : ''}>${i + 1}</span><span class="pname">${esc(t.name)}</span><span>${fmt(t.start)}</span><span>${fmt(t.start + t.duration - 1)}</span><span class="pr">${t.duration}</span><span class="avs">${avatarsHTML(t.members)}</span></div>`).join('');
+  const strip = !cols.some(c => c.key === 'category');
+  const rows = tasks.map((t, i) => `<div class="prow">${cols.map(c => pdfCell(c.key, t, allTasks.indexOf(t), strip)).join('')}</div>`).join('');
+  const headCells = cols.map(c => `<span class="${c.key === 'duration' ? 'pr' : ''}">${esc(c.label)}</span>`).join('');
   const legend = state.members.map(m => `<span class="pchip"><span class="dot" style="background:${m.color}"></span>${esc(m.name)}</span>`).join('')
     + state.categories.map(c => `<span class="pchip"><span class="dot" style="background:#fff;border:2.5px solid ${c.color};width:11px;height:11px;box-sizing:border-box"></span>${esc(c.name)}</span>`).join('');
   const now = new Date();
@@ -794,13 +825,15 @@ function buildExportHTML(from, to, onlyIn = true) {
     .ph .meta{color:#6b7385;font-size:12px;display:flex;flex-wrap:wrap;gap:2px 14px;align-items:center;white-space:nowrap}
     .pchip{display:inline-flex;align-items:center;gap:4px;color:#1d2433}
     .pchip .dot{width:10px;height:10px;border-radius:50%}
-    .pg{break-inside:avoid;display:grid;grid-template-columns:${LW}px ${days * dw}px;border:1px solid #e4e7ef;border-radius:8px;overflow:hidden}
+    .pg{break-inside:avoid;display:grid;grid-template-columns:${LW ? LW + 'px ' : ''}${days * dw}px;border:1px solid #e4e7ef;border-radius:8px;overflow:hidden}
     .pcorner{height:${HEAD}px;border-bottom:1px solid #e4e7ef;border-right:1px solid #e4e7ef;display:flex;align-items:flex-end}
     .pcorner .prow{height:28px;border:none;color:#6b7385;font-size:10px;font-weight:600;text-transform:uppercase}
     .ptl{height:${HEAD}px;border-bottom:1px solid #e4e7ef;overflow:hidden}
     .plist{border-right:1px solid #e4e7ef}
     .pchart{height:${tasks.length * ROW}px;overflow:hidden}
-    .prow{display:grid;grid-template-columns:24px 1fr 56px 56px 30px 64px;gap:0 4px;align-items:center;height:${ROW}px;border-bottom:1px solid #f0f1f5;font-size:12px;padding-right:6px;width:100%}
+    .prow{display:grid;grid-template-columns:${cols.map(c => c.w + 'px').join(' ')};gap:0 4px;align-items:center;height:${ROW}px;border-bottom:1px solid #f0f1f5;font-size:12px;padding:0 6px;width:100%}
+    .pcat{justify-self:start;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1.5px solid;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600}
+    .pmuted{color:#b4bacb}
     .prow .pn{color:#6b7385;text-align:right;padding-right:4px;font-size:11px}
     .prow .pname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
     .prow .pr{text-align:right}
@@ -813,14 +846,114 @@ function buildExportHTML(from, to, onlyIn = true) {
         <div class="meta"><span>${fmtLong(from)} → ${fmtLong(to)} · ${plural(days)} · ${tasks.length} tarefa${tasks.length === 1 ? '' : 's'}</span>${legend}</div>
       </div>
       <div class="pg">
-        <div class="pcorner"><div class="prow"><span>#</span><span>Tarefa</span><span>Início</span><span>Fim</span><span class="pr">Dias</span><span style="padding-left:6px">Time</span></div></div>
+        ${LW ? `<div class="pcorner"><div class="prow">${headCells}</div></div>` : ''}
         <div class="ptl">${tl}</div>
-        <div class="plist">${rows}</div>
+        ${LW ? `<div class="plist">${rows}</div>` : ''}
         <div class="pchart">${ch}</div>
       </div>
     </div></body></html>`;
   return html;
 }
+
+// ---------- Colunas da tabela (PDF / CSV) ----------
+const TABLE_COLS = [
+  { key: 'category', label: 'Categoria', w: 104 },
+  { key: 'num', label: '#', w: 24 },
+  { key: 'name', label: 'Tarefa', w: 190 },
+  { key: 'start', label: 'Início', w: 60 },
+  { key: 'end', label: 'Fim', w: 60 },
+  { key: 'duration', label: 'Dias', w: 34 },
+  { key: 'team', label: 'Time', w: 74 },
+];
+const CSV_EXTRA = [{ key: 'progress', label: 'Progresso (%)' }, { key: 'deps', label: 'Depende de' }, { key: 'notes', label: 'Notas' }];
+const ALL_TABLE_KEYS = TABLE_COLS.map(c => c.key);
+
+// preferências de exportação (por navegador, não fazem parte do projeto)
+const PREFS = 'gantt-heaven:prefs';
+const prefs = { pdfTable: true, pdfMarks: true, pdfCols: ALL_TABLE_KEYS.slice(), csvCols: ALL_TABLE_KEYS.slice(), csvSep: ';' };
+try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREFS) || '{}')); } catch (e) {}
+const savePrefs = () => { try { localStorage.setItem(PREFS, JSON.stringify(prefs)); } catch (e) {} };
+
+function renderColPicker(el, cols, selected) {
+  el.innerHTML = cols.map(c => `<label class="colopt"><input type="checkbox" value="${c.key}" ${selected.includes(c.key) ? 'checked' : ''}><span>${esc(c.label)}</span></label>`).join('');
+}
+const pickedCols = el => [...el.querySelectorAll('input:checked')].map(i => i.value);
+
+function pdfCell(key, t, i, showStrip) {
+  const c = category(t.category);
+  switch (key) {
+    case 'category': return c ? `<span class="pcat" style="border-color:${c.color};background:${c.color}1f">${esc(c.name)}</span>` : '<span class="pmuted">—</span>';
+    case 'num': return `<span class="pn"${showStrip && c ? ` style="border-left:3px solid ${c.color}"` : ''}>${i + 1}</span>`;
+    case 'name': return `<span class="pname">${esc(t.name)}</span>`;
+    case 'start': return `<span>${fmt(t.start)}</span>`;
+    case 'end': return `<span>${fmt(t.start + t.duration - 1)}</span>`;
+    case 'duration': return `<span class="pr">${t.duration}</span>`;
+    case 'team': return `<span class="avs">${avatarsHTML(t.members)}</span>`;
+  }
+  return '<span></span>';
+}
+
+// ---------- CSV ----------
+const fmtFull = i => { const d = new Date(i * DAY); return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`; };
+const CSV_VAL = {
+  category: t => (category(t.category) || {}).name || '',
+  num: (t, i) => i + 1,
+  name: t => t.name,
+  start: t => fmtFull(t.start),
+  end: t => fmtFull(t.start + t.duration - 1),
+  duration: t => t.duration,
+  team: t => t.members.map(member).filter(Boolean).map(m => m.name).join(', '),
+  progress: t => t.progress,
+  deps: t => t.deps.map(task).filter(Boolean).map(d => d.name).join(', '),
+  notes: t => t.notes || '',
+};
+function csvEsc(v, sep) {
+  v = String(v);
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(v)) v = "'" + v; // evita que planilhas interpretem como fórmula
+  return (v.includes(sep) || /["\r\n]/.test(v)) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+function buildCSV(keys, sep) {
+  const cols = [...TABLE_COLS, ...CSV_EXTRA].filter(c => keys.includes(c.key));
+  const lines = [cols.map(c => csvEsc(c.label, sep)).join(sep)];
+  state.tasks.forEach((t, i) => lines.push(cols.map(c => csvEsc(CSV_VAL[c.key](t, i), sep)).join(sep)));
+  return '﻿' + lines.join('\r\n') + '\r\n'; // BOM para o Excel reconhecer UTF-8 (acentos)
+}
+const csvDlg = $('#csvDlg'), csvForm = $('#csvForm');
+function exportCSV() {
+  if (!state.tasks.length) { toast('Adicione tarefas antes de exportar'); return; }
+  renderColPicker($('#csvCols'), [...TABLE_COLS, ...CSV_EXTRA], prefs.csvCols);
+  csvForm.sep.value = prefs.csvSep;
+  updateCsvInfo();
+  csvDlg.showModal();
+}
+function updateCsvInfo() {
+  const n = pickedCols($('#csvCols')).length;
+  csvForm.querySelector('[type=submit]').disabled = !n;
+  $('#csvInfo').textContent = n ? `${state.tasks.length} linha${state.tasks.length === 1 ? '' : 's'} · ${n} coluna${n === 1 ? '' : 's'}` : 'Escolha ao menos uma coluna.';
+}
+$('#csvCols').addEventListener('change', updateCsvInfo);
+$('#csvCancel').onclick = () => csvDlg.close();
+csvForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const keys = pickedCols($('#csvCols')); if (!keys.length) return;
+  const sepKey = csvForm.sep.value, sep = sepKey === 'tab' ? '\t' : sepKey;
+  prefs.csvCols = keys; prefs.csvSep = sepKey; savePrefs();
+  csvDlg.close();
+  const data = buildCSV(keys, sep);
+  const name = (state.name || 'projeto').replace(/[\\/:*?"<>|]+/g, '_') + '.csv';
+  if (window.showSaveFilePicker) {
+    try {
+      const h = await showSaveFilePicker({ suggestedName: name, types: [{ description: 'Planilha CSV', accept: { 'text/csv': ['.csv'] } }] });
+      const w = await h.createWritable(); await w.write(data); await w.close();
+      toast(`📑 CSV salvo em ${h.name}`);
+    } catch (err) { if (err.name !== 'AbortError') alert('Erro ao salvar CSV: ' + err.message); }
+  } else {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([data], { type: 'text/csv;charset=utf-8' }));
+    a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    toast('📑 CSV baixado');
+  }
+});
 
 // ---------- Diálogo de período do PDF ----------
 const pdfDlg = $('#pdfDlg'), pdfForm = $('#pdfForm');
@@ -851,9 +984,16 @@ function updatePdfInfo() {
 function exportPDF() {
   if (!state.tasks.length) { toast('Adicione tarefas antes de exportar'); return; }
   if (!pdfForm.from.value || !pdfForm.to.value) pdfPreset('project'); else updatePdfInfo();
+  pdfForm.withTable.checked = prefs.pdfTable;
+  pdfForm.showMarks.checked = prefs.pdfMarks && state.marks.length > 0;
+  pdfForm.showMarks.disabled = !state.marks.length;
+  $('#pdfMarksInfo').textContent = state.marks.length ? `(${state.marks.length})` : '(nenhum no projeto)';
+  renderColPicker($('#pdfCols'), TABLE_COLS, prefs.pdfCols);
+  $('#pdfCols').classList.toggle('off', !prefs.pdfTable);
   pdfDlg.showModal();
 }
 pdfForm.from.addEventListener('input', updatePdfInfo);
+pdfForm.withTable.addEventListener('change', () => $('#pdfCols').classList.toggle('off', !pdfForm.withTable.checked));
 pdfForm.to.addEventListener('input', updatePdfInfo);
 $('#pdfPresets').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (b) pdfPreset(b.dataset.p); });
 $('#pdfCancel').onclick = () => pdfDlg.close();
@@ -862,14 +1002,18 @@ pdfForm.addEventListener('submit', e => {
   const a = toIdx(pdfForm.from.value), b = toIdx(pdfForm.to.value);
   if (!(b >= a)) return;
   pdfDlg.close();
-  printPDF(a, b, pdfForm.onlyIn.checked);
+  const cols = pickedCols($('#pdfCols'));
+  prefs.pdfTable = pdfForm.withTable.checked; prefs.pdfCols = cols;
+  if (state.marks.length) prefs.pdfMarks = pdfForm.showMarks.checked;
+  savePrefs();
+  printPDF(a, b, pdfForm.onlyIn.checked, { cols: pdfForm.withTable.checked ? cols : [], marks: pdfForm.showMarks.checked });
 });
 
-function printPDF(from, to, onlyIn) {
+function printPDF(from, to, onlyIn, opts) {
   const f = document.createElement('iframe');
   f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
   document.body.appendChild(f);
-  const d = f.contentDocument; d.open(); d.write(buildExportHTML(from, to, onlyIn)); d.close();
+  const d = f.contentDocument; d.open(); d.write(buildExportHTML(from, to, onlyIn, opts)); d.close();
   const oldTitle = document.title;
   document.title = state.name; // nome sugerido do arquivo PDF
   toast('Escolha "Salvar como PDF" no destino da impressão');
@@ -1001,7 +1145,7 @@ scroller.addEventListener('wheel', e => {
 // ---------- Interação na lista ----------
 listEl.addEventListener('pointerdown', e => { const row = e.target.closest('.row[data-id]'); if (row && row.dataset.id !== selectedId) setSelected(row.dataset.id); });
 listEl.addEventListener('click', e => { if (e.target.id === 'addRow') addTask(); });
-listEl.addEventListener('dblclick', e => { if (e.target.matches('input')) return; const row = e.target.closest('.row[data-id]'); if (row) openTaskDlg(row.dataset.id); });
+listEl.addEventListener('dblclick', e => { if (e.target.matches('input,select')) return; const row = e.target.closest('.row[data-id]'); if (row) openTaskDlg(row.dataset.id); });
 listEl.addEventListener('keydown', e => {
   if (!e.target.matches('input')) return;
   if (e.key === 'Enter') e.target.blur();
@@ -1013,6 +1157,16 @@ listEl.addEventListener('change', e => {
   const t = task(row.dataset.id);
   if (e.target.classList.contains('name')) { const v = e.target.value.trim() || 'Sem nome'; mutate(() => t.name = v); }
   if (e.target.classList.contains('dur')) { const v = Math.max(1, Math.round(+e.target.value || 1)); mutate(() => t.duration = v); }
+  if (e.target.classList.contains('catsel')) {
+    let v = e.target.value;
+    if (v === '__new') {
+      const name = prompt('Nome da nova categoria:');
+      if (!name || !name.trim()) { render(); return; }
+      const c = { id: uid(), name: name.trim(), color: nextColor('categories') };
+      mutate(() => { state.categories.push(c); t.category = c.id; }); return;
+    }
+    mutate(() => t.category = category(v) ? v : null);
+  }
 });
 // reordenação
 listEl.addEventListener('dragstart', e => {
@@ -1206,6 +1360,7 @@ $('#btnOpen').onclick = openFile;
 $('#btnSave').onclick = () => saveFile(false);
 $('#btnSaveAs').onclick = () => saveFile(true);
 $('#btnPdf').onclick = exportPDF;
+$('#btnCsv').onclick = exportCSV;
 $('#colMode').addEventListener('change', e => { const v = e.target.value; mutate(() => state.view.columns = v); });
 $('#btnClearMarks').onclick = () => mutate(() => state.marks = []);
 // clique no cabeçalho: destaca (ou remove) o dia / semana / mês
