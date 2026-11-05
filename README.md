@@ -13,7 +13,8 @@ Abra `index.html` no Chrome ou Edge (duplo clique). Clique em **?** na barra de 
 - **Membros do time:** botão 👥 Membros — cada membro tem uma cor; a barra da tarefa assume a cor do(s) responsável(is). Clique num membro da legenda para destacar as tarefas dele.
 - **Editar detalhes:** duplo clique na barra/linha (nome, datas, duração, progresso, membros, dependências, notas).
 - **Salvar:** salvamento automático no navegador + `Ctrl+S` grava um arquivo `.ganttheaven` (`Ctrl+O` abre; também é possível arrastar o arquivo para a janela). Arquivos `.json` antigos continuam abrindo.
-- **PDF:** botão 🖨️ PDF (`Ctrl+P`) e escolha "Salvar como PDF".
+- **Colunas:** em ▦ Colunas escolha Dias, Semanas ou Meses para agrupar/sombrear as colunas. Clique no cabeçalho para destacar aquele dia, semana ou mês (clique de novo para remover).
+- **PDF:** botão 🖨️ PDF (`Ctrl+P`), escolha o período (de/até ou atalhos como "Este mês") e depois "Salvar como PDF".
 - **Atalhos:** `Ctrl+Z`/`Ctrl+Y` desfazer/refazer, `Insert` nova tarefa, `Delete` excluir, `Enter` editar, `Ctrl` + roda do mouse = zoom.
 
 As durações são em dias corridos (fins de semana aparecem sombreados).
