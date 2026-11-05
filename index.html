@@ -13,6 +13,7 @@
 html,body{margin:0;height:100%;font-family:"Segoe UI",system-ui,-apple-system,sans-serif;color:var(--text);background:var(--bg);font-size:13px}
 body{display:flex;flex-direction:column;overflow:hidden}
 body.dragging{user-select:none}
+body.dragging *{cursor:inherit !important}
 button{font:inherit;cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--text);border-radius:7px;padding:6px 11px;transition:background .12s,border-color .12s}
 button:hover{background:#f0f2f8;border-color:#cfd4e2}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
@@ -76,17 +77,24 @@ svg text{font-family:inherit}
 .dlbl{font-size:11px;fill:#6b7385}
 .bar{cursor:grab}
 .bar .body{transition:filter .1s}
-.bar:hover .body{filter:brightness(1.07)}
-.bar.sel .body{stroke:#1d2433;stroke-width:2}
+.bar:hover .body{filter:brightness(1.06)}
+.bar.sel .body{stroke:rgba(20,25,40,.55);stroke-width:1.5}
 .bar.dim{opacity:.22}
 .bar .handle{fill:transparent;cursor:ew-resize}
-.bar:hover .handle{fill:rgba(255,255,255,.35)}
-.bar .connector{fill:#fff;stroke:#6b7385;stroke-width:1.5;opacity:0;cursor:crosshair;transition:opacity .1s}
-.bar:hover .connector{opacity:1}
+.bar .grip{opacity:0;pointer-events:none;transition:opacity .1s}
+.bar:hover .grip,.bar.sel .grip{opacity:.85}
+.bar .handle:hover + .grip,.bar .grip.active{opacity:1}
+.bar .connector{fill:#fff;stroke:#8a92a6;stroke-width:1.5;opacity:0;cursor:crosshair;transition:opacity .1s}
+.bar:hover .connector,.bar.sel .connector{opacity:1}
 .bar .connector:hover{stroke:var(--accent);fill:var(--accent)}
-.bar .lbl{font-size:12px;fill:#3a4256;pointer-events:none}
-.bar .pct{font-size:10.5px;fill:#fff;font-weight:600;pointer-events:none}
+.bar .lbl{font-size:12px;font-weight:600;pointer-events:none}
+.bar .lbl.out{fill:#3a4256;font-weight:500}
+.bar .bav text{font-size:8.5px;font-weight:700;pointer-events:none}
+.band{fill:transparent}
+.band.sel{fill:#e3edfb}
 .linking .bar:hover .body{stroke:var(--accent);stroke-width:2.5;stroke-dasharray:5 3}
+.row:not(.add):hover{background:#f7f8fc}
+.row.sel{background:#e3edfb !important}
 .linking, .linking *{cursor:crosshair !important}
 .link{fill:none;stroke:#8a92a6;stroke-width:1.5;pointer-events:none}
 .link-hit{fill:none;stroke:transparent;stroke-width:10;cursor:pointer}
@@ -202,8 +210,8 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
     <h2>Como usar</h2>
     <table class="help">
       <tr><td>Mover tarefa</td><td>Arraste a barra no gráfico</td></tr>
-      <tr><td>Mudar início / fim</td><td>Arraste a borda esquerda / direita da barra</td></tr>
-      <tr><td>Criar dependência</td><td>Passe o mouse na barra e arraste a bolinha ⚪ da direita até outra tarefa. A tarefa de destino só começa depois que a de origem termina.</td></tr>
+      <tr><td>Mudar início / fim</td><td>Arraste a borda esquerda (início) ou direita (fim) da barra — a duração muda junto</td></tr>
+      <tr><td>Criar dependência</td><td>Passe o mouse na barra e arraste uma das bolinhas ⚪ até outra tarefa. Bolinha da <b>direita</b>: a outra tarefa só começa depois desta. Bolinha da <b>esquerda</b>: esta só começa depois da outra.</td></tr>
       <tr><td>Remover dependência</td><td>Clique na seta</td></tr>
       <tr><td>Editar detalhes</td><td>Duplo clique na barra ou na linha (ou <kbd>Enter</kbd>)</td></tr>
       <tr><td>Reordenar</td><td>Arraste o ícone ⠿ na lista</td></tr>
@@ -400,65 +408,90 @@ function updateListLight() {
   });
 }
 
+// semana ISO (segunda a domingo)
+function isoWeek(idx) {
+  const thu = idx - mod(idx + 3, 7) + 3;
+  const y = new Date(thu * DAY).getUTCFullYear();
+  return Math.floor((thu - Math.round(Date.UTC(y, 0, 1) / DAY)) / 7) + 1;
+}
+const MONTHS = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const TODAY_COLOR = '#e5484d';
+
 function renderTimeline() {
   const W = range.days * dayW, today = todayIdx();
   let s = `<svg width="${W}" height="${HEAD}">`;
-  let i = 0;
-  while (i < range.days) {
-    const d = new Date((range.start + i) * DAY);
-    const y = d.getUTCFullYear(), m = d.getUTCMonth();
-    const dim = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
-    const len = Math.min(dim - d.getUTCDate() + 1, range.days - i);
-    const x = i * dayW, w = len * dayW;
-    let label = '';
-    if (w > 120) { label = d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' }); label = label[0].toUpperCase() + label.slice(1); }
-    else if (w > 44) label = d.toLocaleDateString('pt-BR', { month: 'short', timeZone: 'UTC' }).replace('.', '') + '/' + String(y).slice(2);
-    s += `<text x="${x + 8}" y="17" class="mlbl">${esc(label)}</text><line x1="${x}" x2="${x}" y1="0" y2="${HEAD}" stroke="#dfe3ec"/>`;
-    i += len;
+  if (dayW * 7 >= 64) {
+    // linha superior: semanas ("Sem 35 · ago")
+    for (let k = 0; k < range.days; k += 7) {
+      const idx = range.start + k, x = k * dayW, w = Math.min(7, range.days - k) * dayW;
+      const mid = new Date((idx + 3) * DAY);
+      const label = dayW * 7 >= 110 ? `Sem ${isoWeek(idx)} · ${MONTHS[mid.getUTCMonth()]}` : `S${isoWeek(idx)}`;
+      s += `<text x="${x + w / 2}" y="17" text-anchor="middle" class="mlbl" style="fill:#6b7385;font-weight:600">${label}</text>`;
+      s += `<line x1="${x}" x2="${x}" y1="6" y2="${HEAD}" stroke="#e4e7ef"/>`;
+    }
+  } else {
+    // linha superior: meses
+    let i = 0;
+    while (i < range.days) {
+      const d = new Date((range.start + i) * DAY);
+      const y = d.getUTCFullYear(), m = d.getUTCMonth();
+      const len = Math.min(new Date(Date.UTC(y, m + 1, 0)).getUTCDate() - d.getUTCDate() + 1, range.days - i);
+      const x = i * dayW, w = len * dayW;
+      let label = '';
+      if (w > 120) { label = d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' }); label = label[0].toUpperCase() + label.slice(1); }
+      else if (w > 44) label = MONTHS[m] + '/' + String(y).slice(2);
+      s += `<text x="${x + 8}" y="17" class="mlbl">${esc(label)}</text><line x1="${x}" x2="${x}" y1="0" y2="${HEAD}" stroke="#dfe3ec"/>`;
+      i += len;
+    }
   }
   s += `<line x1="0" x2="${W}" y1="26" y2="26" stroke="#eceef4"/>`;
   for (let k = 0; k < range.days; k++) {
     const idx = range.start + k, wd = weekday(idx), x = k * dayW;
     const dn = new Date(idx * DAY).getUTCDate();
     if ((wd === 0 || wd === 6) && dayW >= 8) s += `<rect x="${x}" y="27" width="${dayW}" height="${HEAD - 27}" fill="#f4f5f9"/>`;
-    if (idx === today) s += `<rect x="${x + 1}" y="29" width="${Math.max(dayW - 2, 2)}" height="${HEAD - 32}" rx="4" fill="${'#4f6bed'}"/>`;
-    const col = idx === today ? '#fff' : '#6b7385';
-    if (dayW >= 40) s += `<text x="${x + dayW / 2}" y="45" text-anchor="middle" class="dlbl" fill="${col}" style="fill:${col}">${WD[wd]} ${dn}</text>`;
-    else if (dayW >= 18) s += `<text x="${x + dayW / 2}" y="45" text-anchor="middle" class="dlbl" style="fill:${col}">${dn}</text>`;
+    const st = idx === today ? `fill:${TODAY_COLOR};font-weight:700` : 'fill:#1d2433;font-weight:600';
+    if (dayW >= 40) s += `<text x="${x + dayW / 2}" y="45" text-anchor="middle" class="dlbl" style="${st}">${WD[wd]} ${dn}</text>`;
+    else if (dayW >= 18) s += `<text x="${x + dayW / 2}" y="45" text-anchor="middle" class="dlbl" style="${st}">${dn}</text>`;
     else if (wd === 1) s += `<line x1="${x}" x2="${x}" y1="27" y2="${HEAD}" stroke="#e4e7ef"/><text x="${x + 3}" y="45" class="dlbl">${dayW * 7 >= 26 ? dn : ''}</text>`;
-    if (dayW >= 18) s += `<line x1="${x}" x2="${x}" y1="27" y2="${HEAD}" stroke="#f0f1f5"/>`;
+    if (dayW >= 18) s += `<line x1="${x}" x2="${x}" y1="27" y2="${HEAD}" stroke="#eef0f4"/>`;
   }
+  const tx = (today - range.start) * dayW + dayW / 2;
+  s += `<line x1="${tx}" x2="${tx}" y1="${dayW >= 18 ? 50 : 27}" y2="${HEAD}" stroke="${TODAY_COLOR}" stroke-width="1.5"/>`;
   timelineEl.innerHTML = s + '</svg>';
 }
 
-function barFill(t, defs) {
-  const ms = t.members.map(member).filter(Boolean);
-  if (!ms.length) return '#9aa3b5';
-  if (ms.length === 1) return ms[0].color;
-  let g = `<linearGradient id="g_${t.id}" x1="0" y1="0" x2="0" y2="1">`;
-  ms.forEach((m, k) => { g += `<stop offset="${k / ms.length}" stop-color="${m.color}"/><stop offset="${(k + 1) / ms.length}" stop-color="${m.color}"/>`; });
-  defs.push(g + '</linearGradient>');
-  return `url(#g_${t.id})`;
+// medição de texto para truncar nomes dentro das barras
+const measureCtx = document.createElement('canvas').getContext('2d');
+function fitText(text, maxW, font) {
+  measureCtx.font = font;
+  if (measureCtx.measureText(text).width <= maxW) return text;
+  let lo = 0, hi = text.length;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (measureCtx.measureText(text.slice(0, mid) + '…').width <= maxW) lo = mid; else hi = mid - 1; }
+  return lo ? text.slice(0, lo).trimEnd() + '…' : '';
 }
 
 function linkPath(p, t, ip, it) {
   const x1 = (p.start + p.duration - range.start) * dayW, y1 = ip * ROW + ROW / 2;
   const x2 = (t.start - range.start) * dayW, y2 = it * ROW + ROW / 2;
-  if (x2 - x1 >= 18) return `M${x1},${y1}H${x1 + 9}V${y2}H${x2 - 1}`;
+  if (x2 - x1 >= 22) return `M${x1},${y1}H${x1 + 10}V${y2}H${x2 - 1}`;
   const ym = it > ip ? it * ROW : (it + 1) * ROW;
-  return `M${x1},${y1}h9V${ym}H${x2 - 12}V${y2}H${x2 - 1}`;
+  return `M${x1},${y1}h10V${ym}H${x2 - 12}V${y2}H${x2 - 1}`;
 }
 
 function renderChart() {
   const n = state.tasks.length, W = range.days * dayW, H = (n + 1) * ROW, today = todayIdx();
   const defs = [];
   let bg = '', links = '', bars = '';
-  for (let i = 0; i < n + 1; i++) bg += `<line x1="0" x2="${W}" y1="${(i + 1) * ROW - .5}" y2="${(i + 1) * ROW - .5}" stroke="#f0f1f5"/>`;
-  if (dayW >= 8) for (let k = 0; k < range.days; k++) { const wd = weekday(range.start + k); if (wd === 0 || wd === 6) bg += `<rect x="${k * dayW}" y="0" width="${dayW}" height="${H}" fill="rgba(30,40,80,.028)"/>`; }
-  // linhas de mês
-  for (let k = 0; k < range.days; k++) if (new Date((range.start + k) * DAY).getUTCDate() === 1) bg += `<line x1="${k * dayW}" x2="${k * dayW}" y1="0" y2="${H}" stroke="#e4e7ef"/>`;
-  const tx = (today - range.start) * dayW;
-  bg += `<rect x="${tx}" y="0" width="${dayW}" height="${H}" fill="rgba(79,107,237,.06)"/><line x1="${tx + dayW / 2}" x2="${tx + dayW / 2}" y1="0" y2="${H}" stroke="#4f6bed" stroke-width="1.5" stroke-dasharray="3 3" opacity=".6"/>`;
+  // faixas das linhas (destaque da linha selecionada)
+  state.tasks.forEach((t, i) => { bg += `<rect class="band${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}" x="0" y="${i * ROW}" width="${W}" height="${ROW}"/>`; });
+  // colunas: fins de semana e grade de dias
+  for (let k = 0; k < range.days; k++) {
+    const wd = weekday(range.start + k);
+    if ((wd === 0 || wd === 6) && dayW >= 8) bg += `<rect x="${k * dayW}" y="0" width="${dayW}" height="${H}" fill="rgba(30,40,80,.035)" pointer-events="none"/>`;
+    if (dayW >= 18 || wd === 1) bg += `<line x1="${k * dayW}" x2="${k * dayW}" y1="0" y2="${H}" stroke="#eef0f4" pointer-events="none"/>`;
+  }
+  const tx = (today - range.start) * dayW + dayW / 2;
+  const todayLine = `<line x1="${tx}" x2="${tx}" y1="0" y2="${H}" stroke="${TODAY_COLOR}" stroke-width="1.5" pointer-events="none"/>`;
 
   const index = new Map(state.tasks.map((t, i) => [t.id, i]));
   state.tasks.forEach((t, it) => {
@@ -468,23 +501,48 @@ function renderChart() {
       links += `<path class="link-hit" d="${dpath}" data-from="${d}" data-to="${t.id}"><title>${esc(p.name)} → ${esc(t.name)} (clique para remover)</title></path><path class="link" d="${dpath}" marker-end="url(#arr)"/>`;
     }
   });
+
+  const H_BAR = 24, R = H_BAR / 2, AV = 20, AV_STEP = 13;
   state.tasks.forEach((t, i) => {
-    const x = (t.start - range.start) * dayW, w = t.duration * dayW, y = i * ROW + 8, h = ROW - 16;
-    const hw = Math.min(7, w / 3);
-    const fill = barFill(t, defs);
+    const x = (t.start - range.start) * dayW, w = t.duration * dayW, y = i * ROW + (ROW - H_BAR) / 2, cy = y + R;
+    const rx = Math.min(R, w / 2);
+    const ms = t.members.map(member).filter(Boolean);
+    const color = ms.length ? ms[0].color : '#9aa3b5';
+    const fg = textOn(color);
+    const hw = clamp(w / 4, 4, 12);
     let b = `<g class="bar${t.id === selectedId ? ' sel' : ''}${dim(t) ? ' dim' : ''}" data-id="${t.id}">`;
-    b += `<rect class="body" x="${x}" y="${y}" width="${w}" height="${h}" rx="5" fill="${fill}"/>`;
-    if (t.progress > 0) b += `<rect x="${x}" y="${y}" width="${w * t.progress / 100}" height="${h}" rx="5" fill="rgba(0,0,0,.22)" pointer-events="none"/>`;
-    if (t.progress > 0 && w > 44) b += `<text class="pct" x="${x + 7}" y="${y + h / 2 + 4}">${t.progress}%</text>`;
-    b += `<rect class="handle" data-h="l" x="${x}" y="${y}" width="${hw}" height="${h}" rx="3"/>`;
-    b += `<rect class="handle" data-h="r" x="${x + w - hw}" y="${y}" width="${hw}" height="${h}" rx="3"/>`;
-    b += `<circle class="connector" cx="${x + w + 8}" cy="${y + h / 2}" r="5"><title>Arraste até outra tarefa para criar dependência</title></circle>`;
-    b += `<text class="lbl" x="${x + w + 18}" y="${y + h / 2 + 4}">${esc(t.name)}</text>`;
+    b += `<rect class="body" x="${x}" y="${y}" width="${w}" height="${H_BAR}" rx="${rx}" fill="${color}"/>`;
+    if (t.progress > 0) {
+      defs.push(`<clipPath id="c_${t.id}"><rect x="${x}" y="${y}" width="${w}" height="${H_BAR}" rx="${rx}"/></clipPath>`);
+      b += `<rect x="${x}" y="${y}" width="${w * t.progress / 100}" height="${H_BAR}" fill="rgba(0,0,0,.18)" clip-path="url(#c_${t.id})" pointer-events="none"/>`;
+    }
+    // avatares dos membros na ponta direita
+    const maxAv = Math.max(0, Math.floor((w - 8 - AV) / AV_STEP) + 1);
+    const shown = ms.slice(0, Math.min(ms.length, maxAv, 3));
+    let avW = 0;
+    shown.forEach((m, k) => {
+      const acx = x + w - R - k * AV_STEP;
+      b += `<g class="bav"><circle cx="${acx}" cy="${cy}" r="${AV / 2}" fill="${m.color}" stroke="#fff" stroke-width="2"/><text x="${acx}" y="${cy + 3}" text-anchor="middle" fill="${textOn(m.color)}">${esc(initials(m.name))}</text><title>${esc(m.name)}</title></g>`;
+    });
+    if (shown.length) avW = AV + (shown.length - 1) * AV_STEP + 4;
+    // nome dentro da barra (truncado) ou à direita se não couber
+    const inner = w - 12 - avW - 6;
+    const label = inner >= 28 ? fitText(t.name, inner, '600 12px "Segoe UI", system-ui, sans-serif') : '';
+    if (label) b += `<text class="lbl" x="${x + 12}" y="${cy + 4}" style="fill:${fg}">${esc(label)}</text>`;
+    else b += `<text class="lbl out" x="${x + w + 20}" y="${cy + 4}">${esc(t.name)}</text>`;
+    // alças de redimensionamento (início e fim)
+    b += `<rect class="handle" data-h="l" x="${x}" y="${y}" width="${hw}" height="${H_BAR}"><title>Arraste para mudar o início</title></rect>`;
+    b += `<rect class="grip" x="${x + 4}" y="${y + 7}" width="2" height="${H_BAR - 14}" rx="1" fill="${fg}"/>`;
+    b += `<rect class="handle" data-h="r" x="${x + w - hw}" y="${y}" width="${hw}" height="${H_BAR}"><title>Arraste para mudar o fim</title></rect>`;
+    b += `<rect class="grip" x="${x + w - 6}" y="${y + 7}" width="2" height="${H_BAR - 14}" rx="1" fill="${fg}"/>`;
+    // conectores de dependência nas duas pontas
+    b += `<circle class="connector" data-c="l" cx="${x - 10}" cy="${cy}" r="5"><title>Arraste até a tarefa que deve terminar antes desta</title></circle>`;
+    b += `<circle class="connector" data-c="r" cx="${x + w + 10}" cy="${cy}" r="5"><title>Arraste até a tarefa que só pode começar depois desta</title></circle>`;
     bars += b + '</g>';
   });
   chartEl.innerHTML = `<svg id="chartSvg" width="${W}" height="${H}">
     <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#8a92a6"/></marker>${defs.join('')}</defs>
-    <g>${bg}</g><g>${links}</g><g>${bars}</g>
+    <g>${bg}</g>${todayLine}<g>${links}</g><g>${bars}</g>
     <line id="tempLink" x1="0" y1="0" x2="0" y2="0" style="display:none"/></svg>`;
 }
 
@@ -608,13 +666,13 @@ chartEl.addEventListener('pointerdown', e => {
     return;
   }
   const g = e.target.closest('.bar');
-  if (!g) { setSelected(null); return; }
+  if (!g) { setSelected(e.target.classList.contains('band') ? e.target.dataset.id : null); return; }
   e.preventDefault();
   const id = g.dataset.id;
   hideTip();
   if (e.target.classList.contains('connector')) {
     const c = e.target; const svg = $('#chartSvg');
-    drag = { type: 'link', from: id, x0: +c.getAttribute('cx'), y0: +c.getAttribute('cy') };
+    drag = { type: 'link', from: id, side: c.dataset.c, x0: +c.getAttribute('cx'), y0: +c.getAttribute('cy') };
     document.body.classList.add('linking', 'dragging');
     const l = $('#tempLink'); l.setAttribute('x1', drag.x0); l.setAttribute('y1', drag.y0); l.setAttribute('x2', drag.x0); l.setAttribute('y2', drag.y0); l.style.display = '';
     return;
@@ -676,8 +734,11 @@ window.addEventListener('pointerup', e => {
   if (d.type === 'link') {
     const l = $('#tempLink'); if (l) l.style.display = 'none';
     const el = document.elementFromPoint(e.clientX, e.clientY);
-    const target = el && (el.closest('.bar') || el.closest('.row[data-id]'));
-    if (target && target.dataset.id !== d.from) addDependency(d.from, target.dataset.id);
+    const target = el && (el.closest('.bar') || el.closest('.band') || el.closest('.row[data-id]'));
+    if (target && target.dataset.id !== d.from) {
+      // ponta direita: o alvo depende desta; ponta esquerda: esta depende do alvo
+      if (d.side === 'l') addDependency(target.dataset.id, d.from); else addDependency(d.from, target.dataset.id);
+    }
     return;
   }
   if (d.moved) { hideTip(); finish(d.prev); }
