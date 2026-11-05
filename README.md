@@ -9,9 +9,11 @@ Abra `index.html` no Chrome ou Edge (duplo clique). Clique em **?** na barra de 
 - **Mover tarefa:** arraste a barra.
 - **Alterar início/fim:** arraste a borda esquerda/direita da barra.
 - **Dependências:** arraste a bolinha à direita de uma barra até outra tarefa (ou linha da lista). A tarefa dependente só começa após o fim da anterior e é empurrada automaticamente. Clique numa seta para removê-la. Ciclos são bloqueados.
+- **Categorias:** botão 🏷️ Categorias — cada categoria tem uma cor, exibida como borda da cápsula da tarefa (e faixa colorida na lista). Escolha a categoria no duplo clique da tarefa; clique numa categoria da legenda para destacá-la.
 - **Membros do time:** botão 👥 Membros — cada membro tem uma cor; a barra da tarefa assume a cor do(s) responsável(is). Clique num membro da legenda para destacar as tarefas dele.
 - **Editar detalhes:** duplo clique na barra/linha (nome, datas, duração, progresso, membros, dependências, notas).
-- **Salvar:** salvamento automático no navegador + `Ctrl+S` grava um arquivo `.gantt.json` (`Ctrl+O` abre; também é possível arrastar o arquivo para a janela).
+- **Salvar:** salvamento automático no navegador + `Ctrl+S` grava um arquivo `.ganttheaven` (`Ctrl+O` abre; também é possível arrastar o arquivo para a janela). Arquivos `.json` antigos continuam abrindo.
+- **PDF:** botão 🖨️ PDF (`Ctrl+P`) e escolha "Salvar como PDF".
 - **Atalhos:** `Ctrl+Z`/`Ctrl+Y` desfazer/refazer, `Insert` nova tarefa, `Delete` excluir, `Enter` editar, `Ctrl` + roda do mouse = zoom.
 
 As durações são em dias corridos (fins de semana aparecem sombreados).

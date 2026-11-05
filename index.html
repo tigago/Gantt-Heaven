@@ -36,6 +36,8 @@ input,textarea,select{font:inherit;color:inherit}
 .chip .dot{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#fff}
 .chip.on{border-color:var(--text);box-shadow:0 0 0 1px var(--text) inset}
 .chip.off{opacity:.45}
+.chip .ring{width:14px;height:14px;border-radius:50%;border:3px solid;margin-left:2px;box-sizing:border-box}
+.chip.cat{padding-left:4px}
 
 /* Main grid */
 #scroller{flex:1;overflow:auto;position:relative;background:#fff}
@@ -78,7 +80,8 @@ svg text{font-family:inherit}
 .bar{cursor:grab}
 .bar .body{transition:filter .1s}
 .bar:hover .body{filter:brightness(1.06)}
-.bar.sel .body{stroke:rgba(20,25,40,.55);stroke-width:1.5}
+.bar .selring{display:none;fill:none;stroke:#1d2433;stroke-width:1.5;opacity:.55;pointer-events:none}
+.bar.sel .selring{display:block}
 .bar.dim{opacity:.22}
 .bar .handle{fill:transparent;cursor:ew-resize}
 .bar .grip{opacity:0;pointer-events:none;transition:opacity .1s}
@@ -113,6 +116,7 @@ dialog::backdrop{background:rgba(20,25,40,.35)}
 .dlg{padding:20px 22px;display:flex;flex-direction:column;gap:12px;max-height:88vh;overflow:auto}
 .dlg h2{margin:0 0 4px;font-size:17px}
 .dlg label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:600}
+.dlg select{border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-weight:400;font-size:13px;background:#fff;color:var(--text)}
 .dlg input[type=text],.dlg input[type=date],.dlg input[type=number],.dlg textarea{border:1px solid var(--line);border-radius:7px;padding:7px 9px;color:var(--text);font-weight:400;font-size:13px}
 .dlg input:focus,.dlg textarea:focus{outline:none;border-color:var(--accent)}
 .grid3{display:grid;grid-template-columns:1fr 1fr 110px;gap:10px}
@@ -149,6 +153,7 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
   <div class="sep"></div>
   <button id="btnAdd" class="primary" title="Nova tarefa (Insert)">+ Tarefa</button>
   <button id="btnMembers">👥 Membros</button>
+  <button id="btnCategories">🏷️ Categorias</button>
   <div class="sep"></div>
   <button id="btnUndo" title="Desfazer (Ctrl+Z)">↶</button>
   <button id="btnRedo" title="Refazer (Ctrl+Y)">↷</button>
@@ -169,7 +174,7 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
 
 <div id="tip"></div>
 <div id="toast"></div>
-<input type="file" id="fileInput" accept=".json,application/json" hidden>
+<input type="file" id="fileInput" accept=".ganttheaven,.json" hidden>
 
 <dialog id="taskDlg">
   <form class="dlg" id="taskForm" method="dialog">
@@ -181,6 +186,7 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
       <label>Duração (dias)<input type="number" name="duration" min="1" required></label>
     </div>
     <label>Progresso: <span id="progVal">0%</span><input type="range" name="progress" min="0" max="100" step="5"></label>
+    <label>Categoria<select name="category" id="dlgCategory"></select></label>
     <div><span class="lbl">Membros responsáveis</span><div id="dlgMembers" class="chips"></div></div>
     <div><span class="lbl">Depende de (só começa após o término de):</span><div id="dlgDeps" class="deps"></div></div>
     <label>Notas<textarea name="notes" rows="3"></textarea></label>
@@ -195,7 +201,8 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
 
 <dialog id="memDlg">
   <div class="dlg">
-    <h2>Membros do time</h2>
+    <h2 id="memTitle">Membros do time</h2>
+    <div id="memHint" style="color:var(--muted);font-size:12px;margin-top:-6px"></div>
     <div id="memList" style="display:flex;flex-direction:column;gap:8px"></div>
     <div class="addmem">
       <input type="color" id="newMemColor">
@@ -216,9 +223,10 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
       <tr><td>Remover dependência</td><td>Clique na seta</td></tr>
       <tr><td>Editar detalhes</td><td>Duplo clique na barra ou na linha (ou <kbd>Enter</kbd>)</td></tr>
       <tr><td>Reordenar</td><td>Arraste o ícone ⠿ na lista</td></tr>
+      <tr><td>Categorias</td><td>Botão 🏷️ Categorias. A borda da cápsula mostra a cor da categoria; escolha a categoria da tarefa com duplo clique nela.</td></tr>
       <tr><td>Membros</td><td>Botão 👥 Membros. Clique num membro da legenda para destacar as tarefas dele.</td></tr>
       <tr><td>Atalhos</td><td><kbd>Ctrl+S</kbd> salvar · <kbd>Ctrl+O</kbd> abrir · <kbd>Ctrl+P</kbd> exportar PDF · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> desfazer/refazer · <kbd>Insert</kbd> nova tarefa · <kbd>Delete</kbd> excluir · <kbd>Ctrl</kbd>+roda = zoom</td></tr>
-      <tr><td>Salvamento</td><td>Tudo é salvo automaticamente no navegador. Use Salvar para gravar um arquivo <i>.json</i> (pode arrastar o arquivo para a janela para abrir).</td></tr>
+      <tr><td>Salvamento</td><td>Tudo é salvo automaticamente no navegador. Use Salvar para gravar um arquivo <i>.ganttheaven</i> (pode arrastar o arquivo para a janela para abrir).</td></tr>
     </table>
     <div class="actions"><span style="flex:1"></span><button id="helpClose" class="primary">Entendi</button></div>
   </div>
@@ -249,11 +257,12 @@ const textOn = hex => { const c = hex.replace('#',''); const r = parseInt(c.subs
 
 // ---------- Estado ----------
 let state, undoStack = [], redoStack = [], dirty = false, fileHandle = null;
-let dayW = 28, range = { start: 0, days: 0 }, selectedId = null, highlightMember = null;
+let dayW = 28, range = { start: 0, days: 0 }, selectedId = null, highlightMember = null, highlightCategory = null;
 let drag = null, rowDrag = null, lastClick = {}, rafPending = false;
 
 const task = id => state.tasks.find(t => t.id === id);
 const member = id => state.members.find(m => m.id === id);
+const category = id => id ? state.categories.find(c => c.id === id) : null;
 const snap = () => JSON.stringify(state);
 
 function sampleProject() {
@@ -263,36 +272,44 @@ function sampleProject() {
     { id: uid(), name: 'Bruno Lima', color: PALETTE[1] },
     { id: uid(), name: 'Carla Dias', color: PALETTE[2] },
   ];
-  const T = (name, dur, ms, deps, progress = 0) => ({ id: uid(), name, start: t0, duration: dur, progress, members: ms.map(i => m[i].id), deps, notes: '' });
-  const a = T('Planejamento', 4, [0], [], 100);
-  const b = T('Design da interface', 6, [2], [a.id], 50);
-  const c = T('Back-end', 9, [1], [a.id], 20);
-  const d = T('Front-end', 8, [0, 2], [b.id]);
-  const e = T('Testes', 5, [1, 2], [c.id, d.id]);
-  const f = T('Lançamento', 2, [0, 1, 2], [e.id]);
-  const s = { name: 'Projeto exemplo', members: m, tasks: [a, b, c, d, e, f] };
+  const cat = [
+    { id: uid(), name: 'Gestão', color: '#1d2433' },
+    { id: uid(), name: 'Design', color: '#db61a2' },
+    { id: uid(), name: 'Desenvolvimento', color: '#d4a72c' },
+    { id: uid(), name: 'Qualidade', color: '#1f9bcf' },
+  ];
+  const T = (name, dur, ms, ci, deps, progress = 0) => ({ id: uid(), name, start: t0, duration: dur, progress, members: ms.map(i => m[i].id), category: cat[ci].id, deps, notes: '' });
+  const a = T('Planejamento', 4, [0], 0, [], 100);
+  const b = T('Design da interface', 6, [2], 1, [a.id], 50);
+  const c = T('Back-end', 9, [1], 2, [a.id], 20);
+  const d = T('Front-end', 8, [0, 2], 2, [b.id]);
+  const e = T('Testes', 5, [1, 2], 3, [c.id, d.id]);
+  const f = T('Lançamento', 2, [0, 1, 2], 0, [e.id]);
+  const s = { name: 'Projeto exemplo', members: m, categories: cat, tasks: [a, b, c, d, e, f] };
   state = s; schedule();
   return s;
 }
 
 function serialize() {
-  return { app: 'gantt-heaven', version: 1, name: state.name, members: state.members,
+  return { app: 'gantt-heaven', version: 2, name: state.name, members: state.members, categories: state.categories,
     tasks: state.tasks.map(t => ({ ...t, start: fromIdx(t.start) })) };
 }
 function deserialize(o) {
   if (!o || !Array.isArray(o.tasks)) throw new Error('Arquivo inválido: não contém tarefas.');
   const members = (o.members || []).map((m, i) => ({ id: String(m.id || uid()), name: String(m.name || 'Membro'), color: /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : PALETTE[i % PALETTE.length] }));
   const mids = new Set(members.map(m => m.id));
+  const categories = (o.categories || []).map((c, i) => ({ id: String(c.id || uid()), name: String(c.name || 'Categoria'), color: /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : PALETTE[(i + 4) % PALETTE.length] }));
+  const cids = new Set(categories.map(c => c.id));
   const tasks = o.tasks.map(t => {
     let start = typeof t.start === 'number' ? t.start : toIdx(t.start);
     if (!Number.isFinite(start)) start = todayIdx();
     return { id: String(t.id || uid()), name: String(t.name ?? 'Tarefa'), start,
       duration: Math.max(1, Math.round(+t.duration || 1)), progress: clamp(Math.round(+t.progress || 0), 0, 100),
-      members: (t.members || []).map(String).filter(id => mids.has(id)), deps: (t.deps || []).map(String), notes: String(t.notes || '') };
+      members: (t.members || []).map(String).filter(id => mids.has(id)), category: cids.has(String(t.category)) ? String(t.category) : null, deps: (t.deps || []).map(String), notes: String(t.notes || '') };
   });
   const tids = new Set(tasks.map(t => t.id));
   tasks.forEach(t => t.deps = [...new Set(t.deps)].filter(d => tids.has(d) && d !== t.id));
-  return { name: String(o.name || 'Projeto'), members, tasks };
+  return { name: String(o.name || 'Projeto'), members, categories, tasks };
 }
 
 function persist() { try { localStorage.setItem(STORE, JSON.stringify(serialize())); } catch (e) {} }
@@ -345,7 +362,7 @@ function finish(prev) {
 }
 function undo() { if (!undoStack.length) return; redoStack.push(snap()); state = JSON.parse(undoStack.pop()); fixSelection(); dirty = true; persist(); render(); }
 function redo() { if (!redoStack.length) return; undoStack.push(snap()); state = JSON.parse(redoStack.pop()); fixSelection(); dirty = true; persist(); render(); }
-function fixSelection() { if (selectedId && !task(selectedId)) selectedId = null; if (highlightMember && !member(highlightMember)) highlightMember = null; }
+function fixSelection() { if (selectedId && !task(selectedId)) selectedId = null; if (highlightMember && !member(highlightMember)) highlightMember = null; if (highlightCategory && !category(highlightCategory)) highlightCategory = null; }
 
 // ---------- Renderização ----------
 const scroller = $('#scroller'), listEl = $('#list'), chartEl = $('#chart'), timelineEl = $('#timeline');
@@ -361,7 +378,7 @@ function computeRange() {
   return { start, days };
 }
 
-const dim = t => highlightMember && !t.members.includes(highlightMember);
+const dim = t => (highlightMember && !t.members.includes(highlightMember)) || (highlightCategory && t.category !== highlightCategory);
 
 function avatarsHTML(ids, max = 3) {
   const ms = ids.map(member).filter(Boolean);
@@ -384,7 +401,8 @@ function scheduleRender() { if (rafPending) return; rafPending = true; requestAn
 function renderList() {
   let h = '';
   state.tasks.forEach((t, i) => {
-    h += `<div class="row cols${t.id === selectedId ? ' sel' : ''}${dim(t) ? ' dim' : ''}" data-id="${t.id}">
+    const cat = category(t.category);
+    h += `<div class="row cols${t.id === selectedId ? ' sel' : ''}${dim(t) ? ' dim' : ''}" data-id="${t.id}"${cat ? ` style="box-shadow:inset 4px 0 0 ${cat.color}" title="Categoria: ${esc(cat.name)}"` : ''}>
       <span class="handle" draggable="true" title="Arraste para reordenar">⠿</span>
       <span class="num">${i + 1}</span>
       <input class="name" value="${esc(t.name)}" spellcheck="false" title="${esc(t.name)}">
@@ -512,7 +530,12 @@ function renderChart() {
     const fg = textOn(color);
     const hw = clamp(w / 4, 4, 12);
     let b = `<g class="bar${t.id === selectedId ? ' sel' : ''}${dim(t) ? ' dim' : ''}" data-id="${t.id}">`;
-    b += `<rect class="body" x="${x}" y="${y}" width="${w}" height="${H_BAR}" rx="${rx}" fill="${color}"/>`;
+    const cat = category(t.category);
+    b += `<rect class="selring" x="${x - 4}" y="${y - 4}" width="${w + 8}" height="${H_BAR + 8}" rx="${rx + 4}"/>`;
+    b += cat
+      ? `<rect class="body" x="${x + 1.5}" y="${y + 1.5}" width="${Math.max(w - 3, 1)}" height="${H_BAR - 3}" rx="${Math.max(rx - 1.5, 0)}" fill="${color}" stroke="${cat.color}" stroke-width="3"/>`
+        + `<rect x="${x + 3.5}" y="${y + 3.5}" width="${Math.max(w - 7, 0)}" height="${H_BAR - 7}" rx="${Math.max(rx - 3.5, 0)}" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="1" pointer-events="none"/>`
+      : `<rect class="body" x="${x}" y="${y}" width="${w}" height="${H_BAR}" rx="${rx}" fill="${color}"/>`;
     if (t.progress > 0) {
       defs.push(`<clipPath id="c_${t.id}"><rect x="${x}" y="${y}" width="${w}" height="${H_BAR}" rx="${rx}"/></clipPath>`);
       b += `<rect x="${x}" y="${y}" width="${w * t.progress / 100}" height="${H_BAR}" fill="rgba(0,0,0,.18)" clip-path="url(#c_${t.id})" pointer-events="none"/>`;
@@ -548,9 +571,13 @@ function renderChart() {
 }
 
 function renderLegend() {
+  const any = highlightMember || highlightCategory;
   $('#legend').innerHTML = state.members.map(m => {
-    const cls = highlightMember === m.id ? ' on' : (highlightMember ? ' off' : '');
+    const cls = highlightMember === m.id ? ' on' : (any ? ' off' : '');
     return `<span class="chip${cls}" data-mid="${m.id}" title="Clique para destacar as tarefas de ${esc(m.name)}"><span class="dot" style="background:${m.color};color:${textOn(m.color)}">${esc(initials(m.name))}</span>${esc(m.name)}</span>`;
+  }).join('') + (state.categories.length && state.members.length ? '<span class="sep"></span>' : '') + state.categories.map(c => {
+    const cls = highlightCategory === c.id ? ' on' : (any ? ' off' : '');
+    return `<span class="chip cat${cls}" data-cid="${c.id}" title="Clique para destacar a categoria ${esc(c.name)}"><span class="ring" style="border-color:${c.color}"></span>${esc(c.name)}</span>`;
   }).join('');
 }
 
@@ -598,19 +625,21 @@ function setZoom(v) {
 }
 
 // ---------- Arquivos ----------
-const fileTypes = [{ description: 'Projeto Gantt Heaven', accept: { 'application/json': ['.json'] } }];
+const EXT = '.ganttheaven';
+const saveTypes = [{ description: 'Projeto Gantt Heaven', accept: { 'application/x-ganttheaven': [EXT] } }];
+const openTypes = [{ description: 'Projeto Gantt Heaven', accept: { 'application/x-ganttheaven': [EXT], 'application/json': ['.json'] } }];
 async function saveFile(saveAs) {
   const data = JSON.stringify(serialize(), null, 2);
-  const suggested = (state.name || 'projeto').replace(/[\\/:*?"<>|]+/g, '_') + '.gantt.json';
+  const suggested = (state.name || 'projeto').replace(/[\\/:*?"<>|]+/g, '_') + EXT;
   if (window.showSaveFilePicker) {
     try {
-      if (!fileHandle || saveAs) fileHandle = await showSaveFilePicker({ suggestedName: suggested, types: fileTypes });
+      if (!fileHandle || saveAs || !fileHandle.name.endsWith(EXT)) fileHandle = await showSaveFilePicker({ suggestedName: suggested, types: saveTypes, excludeAcceptAllOption: true });
       const w = await fileHandle.createWritable(); await w.write(data); await w.close();
       dirty = false; render(); toast(`💾 Salvo em ${fileHandle.name}`);
     } catch (e) { if (e.name !== 'AbortError') alert('Erro ao salvar: ' + e.message); }
   } else {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
+    a.href = URL.createObjectURL(new Blob([data], { type: 'application/x-ganttheaven' }));
     a.download = suggested; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     dirty = false; render(); toast('💾 Arquivo baixado');
   }
@@ -619,7 +648,7 @@ async function openFile() {
   if (dirty && !confirm('Há alterações não salvas em arquivo. Abrir outro projeto mesmo assim?\n(Elas continuam disponíveis em Desfazer.)')) return;
   if (window.showOpenFilePicker) {
     try {
-      const [h] = await showOpenFilePicker({ types: fileTypes });
+      const [h] = await showOpenFilePicker({ types: openTypes });
       const f = await h.getFile(); loadText(await f.text(), h);
     } catch (e) { if (e.name !== 'AbortError') alert('Erro ao abrir: ' + e.message); }
   } else $('#fileInput').click();
@@ -628,7 +657,7 @@ function loadText(text, handle) {
   try {
     const s = deserialize(JSON.parse(text));
     undoStack.push(snap()); redoStack.length = 0;
-    state = s; schedule(); fileHandle = handle || null; selectedId = null; highlightMember = null;
+    state = s; schedule(); fileHandle = handle || null; selectedId = null; highlightMember = null; highlightCategory = null;
     dirty = false; persist(); render();
     const first = Math.min(...state.tasks.map(t => t.start), todayIdx());
     scrollToDay(first - 3);
@@ -650,11 +679,11 @@ function buildExportHTML() {
   days += Math.ceil(130 / dw); // espaço para nomes exibidos à direita de barras curtas
 
   // renderiza com o intervalo do projeto, sem seleção/destaque, e restaura a tela
-  const saved = { range, dayW, selectedId, highlightMember };
-  range = { start, days }; dayW = dw; selectedId = null; highlightMember = null;
+  const saved = { range, dayW, selectedId, highlightMember, highlightCategory };
+  range = { start, days }; dayW = dw; selectedId = null; highlightMember = null; highlightCategory = null;
   renderTimeline(); renderChart();
   const tl = timelineEl.innerHTML, ch = chartEl.innerHTML;
-  ({ range, dayW, selectedId, highlightMember } = saved);
+  ({ range, dayW, selectedId, highlightMember, highlightCategory } = saved);
   render();
 
   const W = LW + days * dw, H = TOP + HEAD + tasks.length * ROW + 4;
@@ -663,8 +692,9 @@ function buildExportHTML() {
   if (z >= 0.45) { page = 'A4 landscape'; zoom = z; }
   else { page = `${Math.ceil(W + 76)}px ${Math.ceil(H + 76)}px`; zoom = 1; } // projeto grande: página única do tamanho do diagrama
 
-  const rows = tasks.map((t, i) => `<div class="prow"><span class="pn">${i + 1}</span><span class="pname">${esc(t.name)}</span><span>${fmt(t.start)}</span><span>${fmt(t.start + t.duration - 1)}</span><span class="pr">${t.duration}</span><span class="avs">${avatarsHTML(t.members)}</span></div>`).join('');
-  const legend = state.members.map(m => `<span class="pchip"><span class="dot" style="background:${m.color}"></span>${esc(m.name)}</span>`).join('');
+  const rows = tasks.map((t, i) => `<div class="prow"><span class="pn"${category(t.category) ? ` style="border-left:3px solid ${category(t.category).color}"` : ''}>${i + 1}</span><span class="pname">${esc(t.name)}</span><span>${fmt(t.start)}</span><span>${fmt(t.start + t.duration - 1)}</span><span class="pr">${t.duration}</span><span class="avs">${avatarsHTML(t.members)}</span></div>`).join('');
+  const legend = state.members.map(m => `<span class="pchip"><span class="dot" style="background:${m.color}"></span>${esc(m.name)}</span>`).join('')
+    + state.categories.map(c => `<span class="pchip"><span class="dot" style="background:#fff;border:2.5px solid ${c.color};width:11px;height:11px;box-sizing:border-box"></span>${esc(c.name)}</span>`).join('');
   const now = new Date();
   const css = document.querySelector('style').textContent + `
     @page{size:${page};margin:10mm}
@@ -728,6 +758,7 @@ function showTip(t, e) {
   const ms = t.members.map(member).filter(Boolean);
   const deps = t.deps.map(task).filter(Boolean);
   tip.innerHTML = `<b>${esc(t.name)}</b><br>${fmtLong(t.start)} → ${fmtLong(t.start + t.duration - 1)}<br>${plural(t.duration)}${t.progress ? ` · ${t.progress}% concluído` : ''}`
+    + (category(t.category) ? `<br>🏷️ ${esc(category(t.category).name)}` : '')
     + (ms.length ? `<br>👥 ${ms.map(m => `<span style="color:${m.color};filter:brightness(1.5)">●</span> ${esc(m.name)}`).join(', ')}` : '')
     + (deps.length ? `<br>⛓ após: ${deps.map(d => esc(d.name)).join(', ')}` : '');
   tip.style.display = 'block';
@@ -906,6 +937,7 @@ function openTaskDlg(id) {
   form.duration.value = t.duration; form.progress.value = t.progress; $('#progVal').textContent = t.progress + '%';
   form.notes.value = t.notes || '';
   renderDlgMembers();
+  renderDlgCategory(t.category);
   const others = state.tasks.filter(x => x.id !== id);
   $('#dlgDeps').innerHTML = others.length ? others.map(o => {
     const cyc = dependsOn(o.id, id);
@@ -920,11 +952,23 @@ function renderDlgMembers() {
     + `<span class="chip" data-add="1" style="padding-left:10px">+ novo membro</span>`
     : `<span style="color:var(--muted)">Nenhum membro ainda.</span> <span class="chip" data-add="1" style="padding-left:10px">+ novo membro</span>`;
 }
+function renderDlgCategory(sel) {
+  const el = $('#dlgCategory');
+  el.innerHTML = `<option value="">— Sem categoria —</option>` + state.categories.map(c => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>● ${esc(c.name)}</option>`).join('') + `<option value="__new">+ Nova categoria…</option>`;
+  const c = category(sel); el.style.borderColor = c ? c.color : ''; el.style.borderWidth = c ? '2px' : '';
+}
+$('#dlgCategory').addEventListener('change', e => {
+  if (e.target.value !== '__new') { renderDlgCategory(e.target.value); return; }
+  const name = prompt('Nome da nova categoria:');
+  if (!name || !name.trim()) { renderDlgCategory(task(dlgTaskId).category); return; }
+  const c = { id: uid(), name: name.trim(), color: nextColor('categories') };
+  mutate(() => state.categories.push(c)); renderDlgCategory(c.id);
+});
 $('#dlgMembers').addEventListener('click', e => {
   const c = e.target.closest('.chip'); if (!c) return;
   if (c.dataset.add) {
     const name = prompt('Nome do novo membro:'); if (!name || !name.trim()) return;
-    const m = { id: uid(), name: name.trim(), color: nextColor() };
+    const m = { id: uid(), name: name.trim(), color: nextColor('members') };
     mutate(() => state.members.push(m)); dlgMembers.add(m.id); renderDlgMembers(); return;
   }
   const id = c.dataset.mid; dlgMembers.has(id) ? dlgMembers.delete(id) : dlgMembers.add(id); renderDlgMembers();
@@ -949,6 +993,7 @@ form.addEventListener('submit', e => {
     t.progress = clamp(+form.progress.value, 0, 100);
     t.members = state.members.filter(m => dlgMembers.has(m.id)).map(m => m.id);
     t.deps = deps; t.notes = form.notes.value;
+    t.category = category(form.category.value) ? form.category.value : null;
   });
   if (Number.isFinite(s) && task(dlgTaskId).start > s) toast('Início ajustado para depois das dependências');
   taskDlg.close();
@@ -956,40 +1001,63 @@ form.addEventListener('submit', e => {
 $('#dlgCancel').onclick = () => taskDlg.close();
 $('#dlgDelete').onclick = () => { const id = dlgTaskId; taskDlg.close(); deleteTask(id, true); };
 
-// ---------- Diálogo de membros ----------
+// ---------- Gerenciador de membros / categorias ----------
 const memDlg = $('#memDlg');
-function nextColor() { const used = new Set(state.members.map(m => m.color.toLowerCase())); return PALETTE.find(c => !used.has(c)) || '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0'); }
-function renderMemList() {
-  $('#memList').innerHTML = state.members.length ? state.members.map(m => {
-    const n = state.tasks.filter(t => t.members.includes(m.id)).length;
-    return `<div class="memrow" data-mid="${m.id}"><input type="color" value="${m.color}" class="mcolor"><input type="text" value="${esc(m.name)}" class="mname"><span class="cnt">${n === 1 ? '1 tarefa' : n + ' tarefas'}</span><button class="danger mdel" title="Remover">✕</button></div>`;
-  }).join('') : '<div style="color:var(--muted)">Nenhum membro cadastrado. Adicione abaixo — cada membro recebe uma cor.</div>';
-  $('#newMemColor').value = nextColor();
+const KINDS = {
+  members: {
+    title: 'Membros do time', hint: 'Cada membro tem uma cor: a cápsula da tarefa assume a cor do responsável.',
+    list: () => state.members,
+    remove: id => { state.members = state.members.filter(x => x.id !== id); state.tasks.forEach(t => t.members = t.members.filter(x => x !== id)); },
+    count: id => state.tasks.filter(t => t.members.includes(id)).length,
+    empty: 'Nenhum membro cadastrado. Adicione abaixo.', placeholder: 'Nome do novo membro', what: 'está em',
+  },
+  categories: {
+    title: 'Categorias', hint: 'A borda da cápsula da tarefa assume a cor da categoria.',
+    list: () => state.categories,
+    remove: id => { state.categories = state.categories.filter(x => x.id !== id); state.tasks.forEach(t => { if (t.category === id) t.category = null; }); },
+    count: id => state.tasks.filter(t => t.category === id).length,
+    empty: 'Nenhuma categoria cadastrada. Adicione abaixo (ex.: Design, Desenvolvimento, Marketing).', placeholder: 'Nome da nova categoria', what: 'é usada em',
+  },
+};
+let mgrKind = 'members';
+const mgrItem = id => KINDS[mgrKind].list().find(x => x.id === id);
+function nextColor(kind = 'members') {
+  const used = new Set((kind === 'categories' ? state.categories : state.members).map(m => m.color.toLowerCase()));
+  const pal = kind === 'categories' ? [...PALETTE.slice(4), ...PALETTE.slice(0, 4)] : PALETTE;
+  return pal.find(c => !used.has(c)) || '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
 }
-function openMemDlg() { renderMemList(); memDlg.showModal(); $('#newMemName').focus(); }
+function renderMemList() {
+  const K = KINDS[mgrKind];
+  $('#memTitle').textContent = K.title; $('#memHint').textContent = K.hint; $('#newMemName').placeholder = K.placeholder;
+  $('#memList').innerHTML = K.list().length ? K.list().map(m => {
+    const n = K.count(m.id);
+    return `<div class="memrow" data-mid="${m.id}"><input type="color" value="${m.color}" class="mcolor"><input type="text" value="${esc(m.name)}" class="mname"><span class="cnt">${n === 1 ? '1 tarefa' : n + ' tarefas'}</span><button class="danger mdel" title="Remover">✕</button></div>`;
+  }).join('') : `<div style="color:var(--muted)">${K.empty}</div>`;
+  $('#newMemColor').value = nextColor(mgrKind);
+}
+function openMgr(kind) { mgrKind = kind; renderMemList(); memDlg.showModal(); $('#newMemName').focus(); }
 $('#memList').addEventListener('change', e => {
-  const row = e.target.closest('.memrow'); const m = member(row.dataset.mid);
+  const row = e.target.closest('.memrow'); const m = mgrItem(row.dataset.mid);
   if (e.target.classList.contains('mcolor')) { const v = e.target.value; mutate(() => m.color = v); }
   if (e.target.classList.contains('mname')) { const v = e.target.value.trim() || m.name; mutate(() => m.name = v); }
   renderMemList();
 });
 $('#memList').addEventListener('input', e => { // pré-visualização da cor ao vivo
   if (!e.target.classList.contains('mcolor')) return;
-  const m = member(e.target.closest('.memrow').dataset.mid); m.color = e.target.value; render();
+  const m = mgrItem(e.target.closest('.memrow').dataset.mid); m.color = e.target.value; render();
 });
 $('#memList').addEventListener('click', e => {
   if (!e.target.classList.contains('mdel')) return;
-  const m = member(e.target.closest('.memrow').dataset.mid);
-  const n = state.tasks.filter(t => t.members.includes(m.id)).length;
-  if (n && !confirm(`${m.name} está em ${n} tarefa(s). Remover mesmo assim?`)) return;
-  mutate(() => { state.members = state.members.filter(x => x.id !== m.id); state.tasks.forEach(t => t.members = t.members.filter(x => x !== m.id)); });
-  if (highlightMember === m.id) { highlightMember = null; render(); }
-  renderMemList();
+  const K = KINDS[mgrKind], m = mgrItem(e.target.closest('.memrow').dataset.mid);
+  const n = K.count(m.id);
+  if (n && !confirm(`"${m.name}" ${K.what} ${n} tarefa(s). Remover mesmo assim?`)) return;
+  mutate(() => K.remove(m.id));
+  fixSelection(); render(); renderMemList();
 });
 function addMemberFromForm() {
   const name = $('#newMemName').value.trim(); if (!name) { $('#newMemName').focus(); return; }
-  const color = $('#newMemColor').value;
-  mutate(() => state.members.push({ id: uid(), name, color }));
+  const color = $('#newMemColor').value, list = KINDS[mgrKind].list();
+  mutate(() => list.push({ id: uid(), name, color }));
   $('#newMemName').value = ''; renderMemList(); $('#newMemName').focus();
 }
 $('#addMem').onclick = addMemberFromForm;
@@ -1001,15 +1069,16 @@ $('#projName').addEventListener('change', e => { const v = e.target.value.trim()
 $('#projName').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
 $('#btnNew').onclick = () => {
   if (!confirm('Criar um novo projeto vazio?\n(O atual pode ser recuperado com Desfazer.)')) return;
-  mutate(() => { state.name = 'Novo projeto'; state.tasks = []; state.members = []; });
-  fileHandle = null; selectedId = null; highlightMember = null; render(); scrollToDay(todayIdx() - 7);
+  mutate(() => { state.name = 'Novo projeto'; state.tasks = []; state.members = []; state.categories = []; });
+  fileHandle = null; selectedId = null; highlightMember = null; highlightCategory = null; render(); scrollToDay(todayIdx() - 7);
 };
 $('#btnOpen').onclick = openFile;
 $('#btnSave').onclick = () => saveFile(false);
 $('#btnSaveAs').onclick = () => saveFile(true);
 $('#btnPdf').onclick = exportPDF;
 $('#btnAdd').onclick = addTask;
-$('#btnMembers').onclick = openMemDlg;
+$('#btnMembers').onclick = () => openMgr('members');
+$('#btnCategories').onclick = () => openMgr('categories');
 $('#btnUndo').onclick = undo;
 $('#btnRedo').onclick = redo;
 $('#btnToday').onclick = () => scrollToDay(todayIdx() - 3);
@@ -1018,7 +1087,9 @@ $('#btnHelp').onclick = () => $('#helpDlg').showModal();
 $('#helpClose').onclick = () => $('#helpDlg').close();
 $('#legend').addEventListener('click', e => {
   const c = e.target.closest('.chip'); if (!c) return;
-  highlightMember = highlightMember === c.dataset.mid ? null : c.dataset.mid; render();
+  if (c.dataset.mid) { highlightMember = highlightMember === c.dataset.mid ? null : c.dataset.mid; highlightCategory = null; }
+  else { highlightCategory = highlightCategory === c.dataset.cid ? null : c.dataset.cid; highlightMember = null; }
+  render();
 });
 
 document.addEventListener('keydown', e => {
