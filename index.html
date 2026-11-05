@@ -212,6 +212,8 @@ button.income-btn:hover{background:#eaf7ee}
 .ft tr.g-type.income th{color:#1a7f37;border-color:#b7e1c2}
 .ft tr.g-type.expense th{color:#c93c37;border-color:#f3c3c1}
 .ft tr.g-cat td{background:#f7f8fb;font-weight:700;color:#3c4458}
+.ft input.fi.cat{text-align:left;font-weight:700;color:#3c4458;min-width:220px}
+.ft input.fi.cat::placeholder{color:#9aa3b5;font-style:italic;font-weight:600}
 .ft tr.g-cat td.cur{background:#eef2fc}
 .ft tr.g-total td{font-weight:700;border-top:1px solid var(--line);background:#f2f4f9}
 .ft tr.g-total td.cur{background:#e8eefc}
@@ -2105,10 +2107,12 @@ function budgetHTML(opts = {}) {
     const groups = groupItems(type); if (!groups.length) continue;
     const tot = {}; let totAmt = 0, totDist = 0;
     h += `<tr class="g-type ${type}"><th class="stk" colspan="1">${type === 'income' ? '↑ Receitas' : '↓ Gastos'}</th><th colspan="${ncol - 1}"></th></tr>`;
-    for (const g of groups) {
+    for (const [gi, g] of groups.entries()) {
       const ct = {}; let cAmt = 0, cDist = 0;
       g.items.forEach(i => { cAmt += i.amount; cDist += planTotal(i); months.forEach(m => ct[m] = (ct[m] || 0) + (i.plan[m] || 0)); });
-      h += `<tr class="g-cat"><td class="stk">${g.cat ? esc(g.cat) : '<i>Sem categoria</i>'}</td><td class="num">${money(cAmt)}</td>${months.map(m => `<td class="num${m === cur ? ' cur' : ''}">${ct[m] ? money(ct[m]) : ''}</td>`).join('')}<td class="num">${money(cDist)}</td><td></td><td></td></tr>`;
+      const catCell = RO ? (g.cat ? esc(g.cat) : '<i>Sem categoria</i>')
+        : `<input class="fi cat" data-k="c:${type}:${gi}" value="${esc(g.cat)}" placeholder="Sem categoria" title="Renomear a categoria (todos os ${g.items.length} item(ns) dela)">`;
+      h += `<tr class="g-cat"><td class="stk">${catCell}</td><td class="num">${money(cAmt)}</td>${months.map(m => `<td class="num${m === cur ? ' cur' : ''}">${ct[m] ? money(ct[m]) : ''}</td>`).join('')}<td class="num">${money(cDist)}</td><td></td><td></td></tr>`;
       for (const i of g.items) {
         const dist = planTotal(i), diff = round2(i.amount - dist);
         const outside = Object.keys(i.plan).some(m => m < p.start || m > p.end);
@@ -2353,6 +2357,17 @@ finEl.addEventListener('change', e => {
   if (t.id === 'fItem') { finFilter.item = t.value; render(); return; }
   if (t.id === 'fDir') { finFilter.dir = t.value; render(); return; }
   const k = t.dataset.k; if (!k) return;
+  if (k.startsWith('c:')) { // renomeia a categoria: todos os itens dela, do mesmo tipo
+    const [, type, gi] = k.split(':'), g = groupItems(type)[+gi]; if (!g) return;
+    const v = t.value.trim().replace(/\s+/g, ' ');
+    if (v === g.cat) return;
+    const merge = v && groupItems(type).some(x => x !== g && x.cat.toLowerCase() === v.toLowerCase());
+    if (merge && !confirm(`Já existe a categoria "${v}". Juntar os itens de "${g.cat || 'Sem categoria'}" a ela?`)) { render(); return; }
+    const target = merge ? groupItems(type).find(x => x !== g && x.cat.toLowerCase() === v.toLowerCase()).cat : v;
+    fmutate(() => g.items.forEach(it => it.category = target));
+    toast(`Categoria ${target ? `renomeada para "${target}"` : 'removida'} em ${g.items.length} item(ns)`);
+    return;
+  }
   if (k.startsWith('o:')) { // observação da transação
     const tx = state.finance.transactions.find(x => x.id === k.slice(2)); if (!tx) return;
     const v = t.value.trim(); lastTxEdited = tx.id;
