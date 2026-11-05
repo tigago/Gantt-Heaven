@@ -1863,6 +1863,7 @@ async function resolveDocPath(file) {
 
 // 🔄 atualiza a lista da mesma pasta: com acesso a pastas, relê sem perguntar; senão, pede para selecioná-la de novo
 async function refreshDocsFolder() {
+  if (!state.finance.docsRoot) { toast('Configure primeiro a pasta dos documentos'); openDocsDlg(); return; }
   const idx = await getDocIndex();
   try {
     let next = null;
@@ -2146,7 +2147,7 @@ function historyHTML(opts = {}) {
   let h = `<div class="fin-toolbar">
     <button class="primary" data-act="add-tx">+ Transação</button>
     <button data-act="recipients">👤 Destinatários</button>
-    <button data-act="docs-folder" title="Pasta onde ficam as notas fiscais e comprovantes (preenche o caminho dos anexos automaticamente)">📁 Pasta dos documentos${f.docsRoot ? ' ✓' : ''}</button>${f.docsRoot ? '<button data-act="docs-refresh" title="Atualizar a lista de arquivos da pasta dos documentos (reseleciona a mesma pasta)">🔄</button>' : ''}
+    <button data-act="docs-folder" title="Pasta onde ficam as notas fiscais e comprovantes (preenche o caminho dos anexos automaticamente)">📁 Pasta dos documentos${f.docsRoot ? ' ✓' : ''}</button><button data-act="docs-refresh" title="${f.docsRoot ? 'Atualizar a lista de arquivos da pasta dos documentos (reseleciona a mesma pasta)' : 'Configurar a pasta dos documentos'}">🔄</button>
     <div class="sep"></div>
     <select id="fMonth" title="Filtrar por mês"><option value="">Todos os meses</option>${months.map(m => `<option value="${m}"${finFilter.month === m ? ' selected' : ''}>${ymLong(m)}</option>`).join('')}</select>
     <select id="fItem" title="Filtrar por item"><option value="">Todos os itens</option>${f.items.map(i => `<option value="${i.id}"${finFilter.item === i.id ? ' selected' : ''}>${esc(itemLabel(i))}</option>`).join('')}</select>
