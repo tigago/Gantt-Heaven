@@ -169,9 +169,8 @@ body:not([data-tab="finance"]) #finance{display:none}
 #subtabs button.on{background:#fff;border-color:var(--line);color:var(--text)}
 #finBody{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .fin-scroll{zoom:var(--finZoom,1)}
-.fzoom{margin-left:auto;align-self:center;display:inline-flex;align-items:center;gap:2px;color:var(--muted);margin-bottom:4px}
-.fzoom button{border:1px solid var(--line);background:#fff;padding:2px 9px;font-weight:600;color:var(--text);border-radius:6px;min-width:30px}
-.fzoom #finZoomVal{min-width:54px;font-variant-numeric:tabular-nums}
+.fzoom{margin-left:auto;align-self:center;margin-bottom:4px}
+.fzoom #finZoomVal{min-width:40px;font-size:12px;font-variant-numeric:tabular-nums;cursor:pointer}
 .fin-toolbar{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .fin-toolbar select,.fin-toolbar input[type=month]{border:1px solid var(--line);border-radius:7px;padding:5px 6px;background:#fff;font:inherit;color:var(--text)}
 .fin-toolbar select{max-width:240px}
@@ -362,7 +361,7 @@ dialog.xwide{width:min(940px,96vw)}
     <button data-sub="budget">📋 Planilha Orçamentária</button>
     <button data-sub="history">🧾 Histórico de Pagamento</button>
     <button data-sub="disb">📊 Desembolso</button>
-    <span class="fzoom" title="Zoom das tabelas (Ctrl + roda do mouse)">🔍<button type="button" data-z="-" title="Diminuir">−</button><button type="button" data-z="0" id="finZoomVal" title="Voltar a 100%">100%</button><button type="button" data-z="+" title="Aumentar">+</button></span>
+    <div class="zoom fzoom">🔍 <input type="range" id="finZoom" min="50" max="200" step="10" value="100" title="Zoom das tabelas (Ctrl + roda do mouse)"><span id="finZoomVal" title="Clique para voltar a 100%">100%</span></div>
   </div>
   <div id="finBody"></div>
 </section>
@@ -553,7 +552,7 @@ dialog.xwide{width:min(940px,96vw)}
       <tr><td>CSV</td><td>Botão 📑 CSV: exporta para planilha as tarefas de um período (de/até), escolhendo as colunas.</td></tr>
       <tr><td>Finanças</td><td>Aba 💰 Finanças: <b>Planilha Orçamentária</b> (previsões de gastos e receitas por mês — edite direto nas células), <b>Histórico de Pagamento</b> (transações ligadas aos itens da planilha, com destinatários) e <b>Desembolso</b> (previsto × realizado por item e mês).</td></tr>
       <tr><td>Recentes</td><td>Botão 🕘 Recentes: reabre um dos últimos 10 projetos abertos ou salvos. Quando o navegador permite acesso a arquivos, abre o próprio arquivo (pode pedir permissão); senão, abre a cópia guardada no navegador no momento em que foi aberto/salvo.</td></tr>
-      <tr><td>Zoom (finanças)</td><td>Na barra das sub-abas de Finanças: − / + ou Ctrl + roda do mouse sobre a tabela; clique na porcentagem para voltar a 100%.</td></tr>
+      <tr><td>Zoom (finanças)</td><td>Slider 🔍 na barra das sub-abas de Finanças, ou Ctrl + roda do mouse sobre a tabela; clique na porcentagem para voltar a 100%.</td></tr>
       <tr><td>Atalhos</td><td><kbd>Ctrl+S</kbd> salvar · <kbd>Ctrl+O</kbd> abrir · <kbd>Ctrl+P</kbd> exportar PDF · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> desfazer/refazer · <kbd>Insert</kbd> nova tarefa · <kbd>Delete</kbd> excluir · <kbd>Ctrl</kbd>+roda = zoom</td></tr>
       <tr><td>Salvamento</td><td>Tudo é salvo automaticamente no navegador. Use Salvar para gravar um arquivo <i>.ganttheaven</i> (pode arrastar o arquivo para a janela para abrir).</td></tr>
     </table>
@@ -2111,13 +2110,11 @@ function setFinZoom(z) {
   prefs.finZoom = Math.round(clamp(z, FZ_MIN, FZ_MAX) * 10) / 10; savePrefs();
   document.documentElement.style.setProperty('--finZoom', prefs.finZoom);
   $('#finZoomVal').textContent = Math.round(prefs.finZoom * 100) + '%';
+  $('#finZoom').value = Math.round(prefs.finZoom * 100);
 }
 setFinZoom(+prefs.finZoom || 1);
-$('#subtabs').addEventListener('click', e => {
-  const z = e.target.closest('[data-z]'); if (!z) return;
-  const cur = +prefs.finZoom || 1;
-  setFinZoom(z.dataset.z === '+' ? cur + FZ_STEP : z.dataset.z === '-' ? cur - FZ_STEP : 1);
-});
+$('#finZoom').addEventListener('input', e => setFinZoom(+e.target.value / 100));
+$('#finZoomVal').addEventListener('click', () => setFinZoom(1));
 finEl.addEventListener('wheel', e => {
   if (!e.ctrlKey) return;
   e.preventDefault(); setFinZoom((+prefs.finZoom || 1) + (e.deltaY < 0 ? FZ_STEP : -FZ_STEP));
