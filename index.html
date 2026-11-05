@@ -541,6 +541,21 @@ dialog.xwide{width:min(940px,96vw)}
   </form>
 </dialog>
 
+<dialog id="docsDlg">
+  <div class="dlg">
+    <h2>📁 Pasta dos documentos</h2>
+    <p class="muted" style="margin:0;font-size:12.5px">O navegador não informa o caminho completo de um arquivo escolhido. Indique aqui a pasta onde ficam as notas fiscais e os comprovantes: ao anexar um arquivo dessa pasta (ou de suas subpastas), o caminho completo é preenchido automaticamente.</p>
+    <label>1. Caminho completo da pasta<input type="text" id="docsRoot" spellcheck="false" placeholder="ex.: G:\Meu Drive\Projeto\Notas e comprovantes"></label>
+    <div class="muted" style="font-size:11px;margin-top:-6px">Dica (Windows): Shift + clique direito na pasta → "Copiar como caminho". No Mac: Option + clique direito → "Copiar … como Nome do Caminho".</div>
+    <div><span class="lbl">2. Selecione a mesma pasta</span>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" id="docsPick">📂 Selecionar a pasta…</button><span id="docsStatus" class="muted" style="font-size:12px"></span></div>
+      <div class="muted" style="font-size:11px;margin-top:4px">Só a lista de arquivos (nomes, pastas, tamanho e data) é lida e guardada neste navegador — o conteúdo não. Se o navegador perguntar se deseja "enviar" os arquivos, nada sai do seu computador.</div>
+      <div id="docsWarn" class="bad" style="font-size:12px;margin-top:4px"></div>
+    </div>
+    <div class="actions"><button type="button" class="danger" id="docsClear">Esquecer pasta</button><span style="flex:1"></span><button type="button" id="docsCancel">Cancelar</button><button type="button" class="primary" id="docsSave">Salvar</button></div>
+  </div>
+</dialog>
+
 <dialog id="helpDlg">
   <div class="dlg">
     <h2>Como usar</h2>
@@ -1780,10 +1795,114 @@ async function pickAttachment() {
   // com File System Access API: vínculo direto com o arquivo; sem ela: cópia guardada no navegador
   const h = window.showOpenFilePicker ? (await showOpenFilePicker({ excludeAcceptAllOption: true, types }))[0] : await pickFileClassic();
   if (!ATT_EXT.test(h.name)) throw new Error('Formato não suportado (use PDF, PNG, JPG ou JPEG)');
+  let path = '';
+  try { path = await resolveDocPath(h.getFile ? await h.getFile() : h); } catch (e) {}
   const hid = uid();
-  try { await fileDB.set(hid, h); } catch (e) { return { name: h.name, path: '', hid: '' }; }
-  return { name: h.name, path: '', hid };
+  try { await fileDB.set(hid, h); } catch (e) { return { name: h.name, path, hid: '' }; }
+  return { name: h.name, path, hid };
 }
+// ---------- Pasta dos documentos: preenche o caminho completo dos anexos ----------
+// O navegador não revela o caminho de um arquivo escolhido. Por isso o usuário informa uma vez o caminho
+// da pasta e a seleciona; guardamos a lista de arquivos (caminho relativo, nome, tamanho, data — não o conteúdo).
+// Ao escolher um anexo, ele é reconhecido nessa lista e o caminho completo é montado: pasta + caminho relativo.
+const DOCIDX_KEY = 'docindex';
+async function getDocIndex() { try { return (await fileDB.get(DOCIDX_KEY)) || null; } catch (e) { return null; } }
+async function scanDirHandle(dir, prefix, out) {
+  for await (const [name, h] of dir.entries()) {
+    if (h.kind === 'directory') await scanDirHandle(h, prefix + name + '/', out);
+    else if (ATT_EXT.test(name)) { try { const f = await h.getFile(); out.push({ rel: prefix + name, name, size: f.size, lm: f.lastModified }); } catch (e) {} }
+  }
+  return out;
+}
+function pickFolderClassic() { // <input webkitdirectory>: lista os arquivos da pasta em qualquer navegador de computador
+  return new Promise((resolve, reject) => {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.multiple = true; inp.webkitdirectory = true; inp.style.display = 'none';
+    document.body.appendChild(inp);
+    const done = () => setTimeout(() => inp.remove(), 0);
+    inp.addEventListener('change', () => {
+      done();
+      const files = [...inp.files];
+      if (!files.length) { reject(new DOMException('cancelado', 'AbortError')); return; }
+      const folder = (files[0].webkitRelativePath || '').split('/')[0];
+      resolve({ folder, handle: null, files: files.filter(f => ATT_EXT.test(f.name)).map(f => ({ rel: f.webkitRelativePath.split('/').slice(1).join('/'), name: f.name, size: f.size, lm: f.lastModified })) });
+    }, { once: true });
+    inp.addEventListener('cancel', () => { done(); reject(new DOMException('cancelado', 'AbortError')); }, { once: true });
+    inp.click();
+  });
+}
+async function pickDocsFolder() {
+  if (window.showDirectoryPicker) {
+    const dir = await showDirectoryPicker({ mode: 'read' });
+    return { folder: dir.name, handle: dir, files: await scanDirHandle(dir, '', []) };
+  }
+  return pickFolderClassic();
+}
+function joinDocPath(root, rel) {
+  root = cleanPath(root).replace(/[\\/]+$/, '');
+  const sep = root.includes('\\') || /^[a-zA-Z]:/.test(root) ? '\\' : '/';
+  return root + sep + rel.split('/').join(sep);
+}
+const sameFile = (e, f) => e.name === f.name && e.size === f.size && (!e.lm || !f.lastModified || Math.abs(e.lm - f.lastModified) < 2000);
+// caminho completo de um arquivo escolhido, se ele estiver na pasta dos documentos ('' se não estiver)
+async function resolveDocPath(file) {
+  const root = state.finance.docsRoot; if (!root || !file) return '';
+  let idx = await getDocIndex();
+  let hit = idx && idx.files.find(e => sameFile(e, file));
+  if (!hit && idx && idx.handle && idx.handle.queryPermission) { // arquivo novo na pasta: atualiza a lista sozinho, se permitido
+    try {
+      if ((await idx.handle.queryPermission({ mode: 'read' })) === 'granted') {
+        idx = { ...idx, files: await scanDirHandle(idx.handle, '', []), at: Date.now() };
+        await fileDB.set(DOCIDX_KEY, idx);
+        hit = idx.files.find(e => sameFile(e, file));
+      }
+    } catch (e) {}
+  }
+  return hit ? joinDocPath(root, hit.rel) : '';
+}
+
+// diálogo
+const docsDlg = $('#docsDlg');
+let docsPending = null;
+async function renderDocsStatus() {
+  const idx = docsPending || await getDocIndex(), el = $('#docsStatus');
+  if (!idx) { el.textContent = 'Nenhuma pasta selecionada ainda.'; el.className = 'muted'; return; }
+  el.textContent = `📁 "${idx.folder}" — ${idx.files.length} arquivo(s) PDF/PNG/JPG reconhecidos · lista de ${whenLabel(idx.at)}${docsPending ? ' (salve para usar)' : ''}`;
+  el.className = 'ok';
+  const typed = cleanPath($('#docsRoot').value), last = baseName(typed.replace(/[\\/]+$/, ''));
+  $('#docsWarn').textContent = typed && last && norm(last) !== norm(idx.folder) ? `⚠️ O caminho informado termina em "${last}", mas a pasta selecionada é "${idx.folder}". Confira se são a mesma pasta.` : '';
+}
+function norm(s) { return String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+async function openDocsDlg() {
+  docsPending = null;
+  $('#docsRoot').value = state.finance.docsRoot || '';
+  await renderDocsStatus();
+  docsDlg.showModal(); $('#docsRoot').focus();
+}
+$('#docsRoot').addEventListener('input', renderDocsStatus);
+$('#docsPick').onclick = async () => {
+  try {
+    const r = await pickDocsFolder();
+    docsPending = { folder: r.folder, files: r.files, handle: r.handle || null, at: Date.now() };
+    if (!$('#docsRoot').value.trim()) toast('Agora cole o caminho completo dessa pasta no campo acima', 5000);
+    renderDocsStatus();
+  } catch (e) { if (e.name !== 'AbortError') toast('Não foi possível ler a pasta: ' + e.message); }
+};
+$('#docsCancel').onclick = () => docsDlg.close();
+$('#docsClear').onclick = async () => {
+  if (!confirm('Esquecer a pasta dos documentos? Os caminhos já gravados nas transações continuam.')) return;
+  try { await fileDB.set(DOCIDX_KEY, null); } catch (e) {}
+  fmutate(() => state.finance.docsRoot = ''); docsDlg.close();
+};
+$('#docsSave').onclick = async () => {
+  const root = cleanPath($('#docsRoot').value);
+  if (!root || !pathToURL(root)) { toast('Cole o caminho completo da pasta, ex.: G:\\Meu Drive\\...\\Notas e comprovantes', 5000); $('#docsRoot').focus(); return; }
+  if (!docsPending && !(await getDocIndex())) { toast('Selecione a pasta em "📂 Selecionar a pasta…"'); return; }
+  if (docsPending) { try { await fileDB.set(DOCIDX_KEY, docsPending); } catch (e) { toast('Não foi possível guardar a lista de arquivos neste navegador'); return; } }
+  fmutate(() => state.finance.docsRoot = root);
+  docsDlg.close(); toast('📁 Pasta dos documentos configurada: o caminho dos anexos será preenchido automaticamente', 4000);
+};
+
 function pathToURL(p) {
   p = cleanPath(p).replace(/\\/g, '/');
   if (/^\/\//.test(p)) return 'file:' + encodeURI(p);              // \\servidor\pasta
@@ -1836,7 +1955,7 @@ function normFinance(f) {
     invoice: normAtt(t.invoice), receipt: normAtt(t.receipt),
   }));
   const months = f.months && isYM(f.months.start) && isYM(f.months.end) && f.months.start <= f.months.end ? { start: f.months.start, end: f.months.end } : null;
-  return { months, items, transactions, recipients };
+  return { months, items, transactions, recipients, docsRoot: String(f.docsRoot || '') };
 }
 function sampleFinance() {
   const M = n => ymAdd(todayYM(), n), D = (n, d) => `${M(n)}-${pad(d)}`;
@@ -2005,6 +2124,7 @@ function historyHTML(opts = {}) {
   let h = `<div class="fin-toolbar">
     <button class="primary" data-act="add-tx">+ Transação</button>
     <button data-act="recipients">👤 Destinatários</button>
+    <button data-act="docs-folder" title="Pasta onde ficam as notas fiscais e comprovantes (preenche o caminho dos anexos automaticamente)">📁 Pasta dos documentos${f.docsRoot ? ' ✓' : ''}</button>
     <div class="sep"></div>
     <select id="fMonth" title="Filtrar por mês"><option value="">Todos os meses</option>${months.map(m => `<option value="${m}"${finFilter.month === m ? ' selected' : ''}>${ymLong(m)}</option>`).join('')}</select>
     <select id="fItem" title="Filtrar por item"><option value="">Todos os itens</option>${f.items.map(i => `<option value="${i.id}"${finFilter.item === i.id ? ' selected' : ''}>${esc(itemLabel(i))}</option>`).join('')}</select>
@@ -2141,6 +2261,7 @@ finEl.addEventListener('click', e => {
     case 'edit-tx': openTxDlg(id); break;
     case 'del-tx': { const t = state.finance.transactions.find(x => x.id === id); if (t && confirm(`Excluir a transação de ${money(t.amount)} em ${fmtDateBR(t.date)}?`)) fmutate(() => state.finance.transactions = state.finance.transactions.filter(x => x.id !== id)); break; }
     case 'recipients': openRecDlg(); break;
+    case 'docs-folder': openDocsDlg(); break;
     case 'exp-pdf': openFinExport(finSub, 'pdf'); break;
     case 'exp-csv': openFinExport(finSub, 'csv'); break;
     case 'open-att': { const t = state.finance.transactions.find(x => x.id === id); if (t) openAttachment(t[a.dataset.kind]); break; }
@@ -2148,7 +2269,8 @@ finEl.addEventListener('click', e => {
       if (!canPick()) { openTxDlg(id); break; }
       const kind = a.dataset.kind;
       pickAttachment().then(att => fmutate(() => { const t = state.finance.transactions.find(x => x.id === id); if (t) { t[kind] = att; lastTxEdited = id; } }))
-        .then(() => toast(`${ATT_KIND[kind]} anexado(a). Para abrir em outro computador, edite a transação e cole o caminho completo.`))
+        .then(() => { const t = state.finance.transactions.find(x => x.id === id), at = t && t[kind];
+          toast(at && at.path ? `${ATT_KIND[kind]} anexado(a): ${at.path}` : `${ATT_KIND[kind]} anexado(a). ${state.finance.docsRoot ? 'O arquivo não está na pasta dos documentos — edite a transação para colar o caminho.' : 'Configure a 📁 Pasta dos documentos para o caminho completo ser preenchido sozinho.'}`, 6000); })
         .catch(err => { if (err.name !== 'AbortError') toast(err.message); });
       break;
     }
@@ -2327,7 +2449,8 @@ function renderTxAtt() {
     box.querySelector('[data-a=open]').disabled = !a;
     box.querySelector('[data-a=clear]').disabled = !a;
     box.querySelector('[data-a=pick]').style.display = canPick() ? '' : 'none';
-    box.querySelector('small').textContent = a && a.hid ? `📎 "${a.name}" ${window.showOpenFilePicker ? 'vinculado' : 'guardado'} neste navegador${a.path ? '' : ' — cole também o caminho completo para abrir em outros computadores'}` : '';
+    box.querySelector('small').textContent = !a || !a.hid ? '' : a.path ? `📎 "${a.name}" — caminho preenchido a partir da pasta dos documentos`
+      : `📎 "${a.name}" ${window.showOpenFilePicker ? 'vinculado' : 'guardado'} neste navegador — ${state.finance.docsRoot ? 'arquivo fora da pasta dos documentos; cole o caminho completo' : 'configure a 📁 Pasta dos documentos para o caminho ser preenchido sozinho'}`;
   }
 }
 function readTxAtt(kind) { // lê o campo de caminho e mescla com o vínculo escolhido
@@ -2343,7 +2466,7 @@ txForm.querySelectorAll('.att').forEach(box => {
       try {
         const prevPath = cleanPath(box.querySelector('input').value);
         const a = await pickAttachment();
-        dlgTx.att[kind] = { ...a, path: baseName(prevPath) === a.name ? prevPath : '' };
+        dlgTx.att[kind] = { ...a, path: a.path || (baseName(prevPath) === a.name ? prevPath : '') };
         renderTxAtt();
       } catch (err) { if (err.name !== 'AbortError') toast(err.message); }
     }
