@@ -218,7 +218,13 @@ button.income-btn:hover{background:#eaf7ee}
 .ft tr.g-bal td{font-weight:600;color:#3c4458;background:#fbfbfd}
 .ft tr.g-bal td.neg{color:#c93c37}
 .ft.hist{min-width:max(900px,100%)}
-.ft.hist td.notes{white-space:normal;max-width:320px;color:#3c4458}
+.ft.hist td.notes{white-space:normal;max-width:340px;color:#3c4458}
+.ft.hist input.fi.note{min-width:240px;text-align:left;color:#3c4458}
+.ft.hist input.fi.note::placeholder{color:transparent}
+.ft.hist tr.tx:hover input.fi.note::placeholder,.ft.hist input.fi.note:focus::placeholder{color:#b4bacb}
+.ft.hist tr.tx.edited td{background:#fff8e1}
+.ft.hist tr.tx.edited td:first-child{box-shadow:inset 3px 0 0 #f5b400}
+.ft.hist tr.tx.edited:hover td{background:#fff3cf}
 .ft.hist tr.g-month td{background:#f7f8fb;font-weight:700;height:30px;color:#3c4458}
 .ft.hist tr.g-month td span{font-weight:500;color:var(--muted);margin-left:10px}
 .ft.hist tr.tx{cursor:default}
@@ -1901,7 +1907,7 @@ function fmutate(fn) {
 
 const finEl = $('#finBody');
 let finSub = ['budget', 'history', 'disb'].includes(prefs.finSub) ? prefs.finSub : 'budget';
-let finFilter = { month: '', item: '', dir: '' }, disbType = 'expense';
+let finFilter = { month: '', item: '', dir: '' }, disbType = 'expense', lastTxEdited = null;
 
 function renderFinance() {
   document.body.dataset.tab = prefs.tab === 'finance' ? 'finance' : 'gantt';
@@ -1913,7 +1919,7 @@ function renderFinance() {
   const sc = finEl.querySelector('.fin-scroll'), sl = sc ? sc.scrollLeft : 0, st = sc ? sc.scrollTop : 0;
   finEl.innerHTML = finSub === 'budget' ? budgetHTML() : finSub === 'history' ? historyHTML() : disbHTML();
   const sc2 = finEl.querySelector('.fin-scroll'); if (sc2) { sc2.scrollLeft = sl; sc2.scrollTop = st; }
-  if (key) { const el = finEl.querySelector(`[data-k="${CSS.escape(key)}"]`); if (el) { el.focus(); if (el.select) el.select(); } }
+  if (key) { const el = finEl.querySelector(`[data-k="${CSS.escape(key)}"]`); if (el) { el.focus(); if (el.classList.contains('note')) { const n = el.value.length; el.setSelectionRange(n, n); } else if (el.select) el.select(); } }
   $('#finCats').innerHTML = [...new Set(state.finance.items.map(i => i.category.trim()).filter(Boolean))].map(c => `<option value="${esc(c)}">`).join('');
 }
 
@@ -2027,7 +2033,7 @@ function historyHTML(opts = {}) {
       case 'value': return `<td class="num ${t.direction}">${t.direction === 'out' ? '−' : '+'} ${money(t.amount)}</td>`;
       case 'contract': return `<td class="ctr">${t.contract ? '✓' : '<span class="muted">—</span>'}</td>`;
       case 'invoice': case 'receipt': return attCell(t, key);
-      case 'notes': return `<td class="notes">${esc(t.notes)}</td>`;
+      case 'notes': return RO ? `<td class="notes">${esc(t.notes)}</td>` : `<td class="notes"><input class="fi note" data-k="o:${t.id}" value="${esc(t.notes)}" title="${esc(t.notes || 'Clique para escrever uma observação')}" placeholder="adicionar observação…"></td>`;
     }
     return '<td></td>';
   };
@@ -2041,7 +2047,7 @@ function historyHTML(opts = {}) {
       h += `<tr class="g-month"><td colspan="${ncol}">${ymLong(m)} <span>${mo ? `saídas ${money(mo)}` : ''}${mo && mi ? ' · ' : ''}${mi ? `entradas ${money(mi)}` : ''}</span></td></tr>`;
     }
     const it = finItem(t.itemId), r = finRec(t.recipientId);
-    h += `<tr class="tx" data-id="${t.id}">${cols.map(c => cell(c.key, t, it, r)).join('')}${RO ? '' : '<td class="acts"><button data-act="edit-tx" title="Editar">✎</button><button data-act="del-tx" title="Excluir">✕</button></td>'}</tr>`;
+    h += `<tr class="tx${!RO && t.id === lastTxEdited ? ' edited' : ''}" data-id="${t.id}">${cols.map(c => cell(c.key, t, it, r)).join('')}${RO ? '' : '<td class="acts"><button data-act="edit-tx" title="Editar">✎</button><button data-act="del-tx" title="Excluir">✕</button></td>'}</tr>`;
   }
   if (!list.length) h += `<tr><td colspan="${ncol}" class="muted" style="text-align:center;padding:20px">Nenhuma transação com esses filtros.</td></tr>`;
   return h + '</tbody></table></div>';
@@ -2141,7 +2147,7 @@ finEl.addEventListener('click', e => {
     case 'pick-att': { // anexa direto pela tabela (ou abre o diálogo se o navegador não permitir escolher)
       if (!canPick()) { openTxDlg(id); break; }
       const kind = a.dataset.kind;
-      pickAttachment().then(att => fmutate(() => { const t = state.finance.transactions.find(x => x.id === id); if (t) t[kind] = att; }))
+      pickAttachment().then(att => fmutate(() => { const t = state.finance.transactions.find(x => x.id === id); if (t) { t[kind] = att; lastTxEdited = id; } }))
         .then(() => toast(`${ATT_KIND[kind]} anexado(a). Para abrir em outro computador, edite a transação e cole o caminho completo.`))
         .catch(err => { if (err.name !== 'AbortError') toast(err.message); });
       break;
@@ -2160,13 +2166,16 @@ finEl.addEventListener('keydown', e => {
     e.preventDefault();
     const td = e.target.closest('td'), tr = td.closest('tr'), idx = [...tr.children].indexOf(td);
     let next = tr.nextElementSibling;
-    while (next && !next.classList.contains('item')) next = next.nextElementSibling;
+    while (next && !next.classList.contains('item') && !next.classList.contains('tx')) next = next.nextElementSibling;
     const inp = next && next.children[idx] && next.children[idx].querySelector('input');
     if (inp) inp.focus(); else e.target.blur();
   }
   if (e.key === 'Escape') { e.target.blur(); render(); }
 });
-finEl.addEventListener('focusin', e => { if (e.target.matches('input.fi')) setTimeout(() => e.target.select(), 0); });
+finEl.addEventListener('focusin', e => {
+  if (e.target.matches('input.fi.note')) { const el = e.target; setTimeout(() => { const n = el.value.length; el.setSelectionRange(n, n); }, 0); }
+  else if (e.target.matches('input.fi')) setTimeout(() => e.target.select(), 0);
+});
 finEl.addEventListener('change', e => {
   const t = e.target;
   if (t.id === 'finFrom' || t.id === 'finTo') {
@@ -2179,6 +2188,12 @@ finEl.addEventListener('change', e => {
   if (t.id === 'fItem') { finFilter.item = t.value; render(); return; }
   if (t.id === 'fDir') { finFilter.dir = t.value; render(); return; }
   const k = t.dataset.k; if (!k) return;
+  if (k.startsWith('o:')) { // observação da transação
+    const tx = state.finance.transactions.find(x => x.id === k.slice(2)); if (!tx) return;
+    const v = t.value.trim(); lastTxEdited = tx.id;
+    if (v === tx.notes) { render(); return; }
+    fmutate(() => tx.notes = v); return;
+  }
   const [kind, id, m] = k.split(':'), it = finItem(id); if (!it) return;
   if (kind === 'n') { const v = t.value.trim(); if (!v) { render(); return; } fmutate(() => it.name = v); return; }
   const v = parseMoney(t.value);
@@ -2352,8 +2367,8 @@ txForm.addEventListener('submit', e => {
     if (a && !ATT_EXT.test(a.path || a.name)) { toast(`${ATT_KIND[k]}: use um arquivo PDF, PNG, JPG ou JPEG`); txForm.querySelector(`.att[data-kind="${k}"] input`).focus(); return; }
   const data = { date: txForm.date.value, amount, itemId: txForm.item.value, direction: dlgTx.dir, recipientId: finRec(txForm.recipient.value) ? txForm.recipient.value : null, contract: txForm.contract.checked, notes: txForm.notes.value.trim(), invoice, receipt };
   fmutate(() => {
-    if (dlgTx.id) Object.assign(state.finance.transactions.find(x => x.id === dlgTx.id), data);
-    else state.finance.transactions.push({ id: uid(), ...data });
+    if (dlgTx.id) { Object.assign(state.finance.transactions.find(x => x.id === dlgTx.id), data); lastTxEdited = dlgTx.id; }
+    else { const nid = uid(); state.finance.transactions.push({ id: nid, ...data }); lastTxEdited = nid; }
   });
   if (again) { // mantém data, item e direção para lançar a próxima
     toast('Transação registrada'); txForm.amount.value = ''; txForm.notes.value = ''; txForm.contract.checked = false;
