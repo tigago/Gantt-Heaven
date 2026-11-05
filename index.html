@@ -494,12 +494,15 @@ dialog.xwide{width:min(940px,96vw)}
     </div>
     <label>Item da planilha orçamentária<select name="item" required></select></label>
     <label><span id="txRecLbl">Destinatário</span><select name="recipient"></select></label>
-    <label class="check"><input type="checkbox" name="contract"> Possui contrato</label>
+
     <div class="att" data-kind="invoice"><span class="lbl">Nota fiscal</span>
       <div class="attrow"><input type="text" placeholder="Caminho do arquivo, ex.: C:\Notas\nf-123.pdf" spellcheck="false"><button type="button" data-a="pick" title="Escolher arquivo (PDF, PNG, JPG)">📂 Escolher…</button><button type="button" data-a="open" title="Abrir">👁</button><button type="button" data-a="clear" title="Remover">✕</button></div>
       <small class="muted"></small></div>
     <div class="att" data-kind="receipt"><span class="lbl">Comprovante</span>
       <div class="attrow"><input type="text" placeholder="Caminho do arquivo, ex.: C:\Comprovantes\pix.png" spellcheck="false"><button type="button" data-a="pick" title="Escolher arquivo (PDF, PNG, JPG)">📂 Escolher…</button><button type="button" data-a="open" title="Abrir">👁</button><button type="button" data-a="clear" title="Remover">✕</button></div>
+      <small class="muted"></small></div>
+    <div class="att" data-kind="contractDoc"><span class="lbl" style="display:flex;align-items:center;gap:14px">Contrato <label class="check" style="font-weight:400;color:var(--text);font-size:12.5px;margin:0"><input type="checkbox" name="contract"> Possui contrato</label></span>
+      <div class="attrow"><input type="text" placeholder="Caminho do arquivo, ex.: C:\Contratos\contrato.pdf" spellcheck="false"><button type="button" data-a="pick" title="Escolher arquivo (PDF, PNG, JPG)">📂 Escolher…</button><button type="button" data-a="open" title="Abrir">👁</button><button type="button" data-a="clear" title="Remover">✕</button></div>
       <small class="muted"></small></div>
     <div class="muted" style="font-size:11px;margin-top:-6px">Dica: no Explorador de Arquivos, Shift + clique direito no arquivo → "Copiar como caminho" e cole aqui.</div>
     <label>Observação<textarea name="notes" rows="2"></textarea></label>
@@ -1725,6 +1728,8 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Escape') setSelected(null);
 });
 window.addEventListener('resize', () => render());
+// alterações não salvas em arquivo: o navegador pergunta antes de fechar a guia/janela ou recarregar
+window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
 
 // =====================================================================
 // ============================ FINANÇAS ================================
@@ -1761,7 +1766,8 @@ const fmtDateBR = iso => { const [y, m, d] = iso.split('-'); return `${d}/${m}/$
 // Cada anexo guarda o caminho completo do arquivo (portável) e, opcionalmente, um vínculo
 // com o arquivo escolhido neste navegador (FileSystemFileHandle no IndexedDB), que abre direto.
 const ATT_EXT = /\.(pdf|png|jpe?g)$/i;
-const ATT_KIND = { invoice: 'Nota fiscal', receipt: 'Comprovante' };
+const ATT_KIND = { invoice: 'Nota fiscal', receipt: 'Comprovante', contractDoc: 'Contrato' };
+const ATT_KINDS = ['invoice', 'receipt', 'contractDoc'];
 const normAtt = a => a && (a.path || a.hid) ? { path: String(a.path || ''), name: String(a.name || ''), hid: a.hid ? String(a.hid) : '' } : null;
 const baseName = p => String(p || '').split(/[\\/]/).pop();
 const attName = a => a ? (a.name || baseName(a.path)) : '';
@@ -1983,7 +1989,7 @@ function normFinance(f) {
     id: String(t.id || uid()), date: t.date, amount: round2(Math.abs(+t.amount || 0)),
     itemId: iids.has(String(t.itemId)) ? String(t.itemId) : null, direction: t.direction === 'in' ? 'in' : 'out',
     recipientId: rids.has(String(t.recipientId)) ? String(t.recipientId) : null, contract: !!t.contract, notes: String(t.notes || ''),
-    invoice: normAtt(t.invoice), receipt: normAtt(t.receipt),
+    invoice: normAtt(t.invoice), receipt: normAtt(t.receipt), contractDoc: normAtt(t.contractDoc),
   }));
   const months = f.months && isYM(f.months.start) && isYM(f.months.end) && f.months.start <= f.months.end ? { start: f.months.start, end: f.months.end } : null;
   return { months, items, transactions, recipients, docsRoot: String(f.docsRoot || '') };
@@ -2136,7 +2142,7 @@ const HIST_COLS = [
   { key: 'rec', label: 'Destinatário / Origem' }, { key: 'value', label: 'Valor', num: true }, { key: 'contract', label: 'Contrato' },
   { key: 'invoice', label: 'Nota Fiscal' }, { key: 'receipt', label: 'Comprovante' }, { key: 'notes', label: 'Observação' },
 ];
-const HIST_CSV_EXTRA = [{ key: 'category', label: 'Categoria do item' }, { key: 'phone', label: 'Telefone' }, { key: 'email', label: 'E-mail' }, { key: 'pix', label: 'Chave Pix' }];
+const HIST_CSV_EXTRA = [{ key: 'contractDoc', label: 'Arquivo do contrato' }, { key: 'category', label: 'Categoria do item' }, { key: 'phone', label: 'Telefone' }, { key: 'email', label: 'E-mail' }, { key: 'pix', label: 'Chave Pix' }];
 // transações conforme filtros da tela e/ou intervalo de datas
 function txList(opts = {}) {
   const useF = opts.filters !== false;
@@ -2182,7 +2188,12 @@ function historyHTML(opts = {}) {
       case 'item': return `<td class="${it ? '' : 'muted'}">${esc(itemLabel(it))}</td>`;
       case 'rec': return `<td>${r ? `<span title="${esc([r.phone, r.email, r.pix && 'Pix: ' + r.pix].filter(Boolean).join(' · '))}">${esc(r.name)}</span>` : '<span class="muted">—</span>'}</td>`;
       case 'value': return `<td class="num ${t.direction}">${t.direction === 'out' ? '−' : '+'} ${money(t.amount)}</td>`;
-      case 'contract': return `<td class="ctr">${t.contract ? '✓' : '<span class="muted">—</span>'}</td>`;
+      case 'contract': {
+        const a = t.contractDoc;
+        if (a) return attCell(t, 'contractDoc');
+        if (RO) return `<td class="ctr">${t.contract ? '✓' : '<span class="muted">—</span>'}</td>`;
+        return `<td class="att ctr">${t.contract ? '<span class="ok" title="Possui contrato (arquivo não anexado)">✓</span> ' : ''}<button class="attadd" data-act="pick-att" data-kind="contractDoc" title="Anexar contrato (PDF, PNG, JPG)">＋ anexar</button></td>`;
+      }
       case 'invoice': case 'receipt': return attCell(t, key);
       case 'notes': return RO ? `<td class="notes">${esc(t.notes)}</td>` : `<td class="notes"><input class="fi note" data-k="o:${t.id}" value="${esc(t.notes)}" title="${esc(t.notes || 'Clique para escrever uma observação')}" placeholder="adicionar observação…"></td>`;
     }
@@ -2300,7 +2311,7 @@ finEl.addEventListener('click', e => {
     case 'pick-att': { // anexa direto pela tabela (ou abre o diálogo se o navegador não permitir escolher)
       if (!canPick()) { openTxDlg(id); break; }
       const kind = a.dataset.kind;
-      pickAttachment().then(att => fmutate(() => { const t = state.finance.transactions.find(x => x.id === id); if (t) { t[kind] = att; lastTxEdited = id; } }))
+      pickAttachment().then(att => fmutate(() => { const t = state.finance.transactions.find(x => x.id === id); if (t) { t[kind] = att; if (kind === 'contractDoc') t.contract = true; lastTxEdited = id; } }))
         .then(() => { const t = state.finance.transactions.find(x => x.id === id), at = t && t[kind];
           toast(at && at.path ? `${ATT_KIND[kind]} anexado(a): ${at.path}` : `${ATT_KIND[kind]} anexado(a). ${state.finance.docsRoot ? 'O arquivo não está na pasta dos documentos — edite a transação para colar o caminho.' : 'Configure a 📁 Pasta dos documentos para o caminho completo ser preenchido sozinho.'}`, 6000); })
         .catch(err => { if (err.name !== 'AbortError') toast(err.message); });
@@ -2456,7 +2467,7 @@ function openTxDlg(id) {
   fillTxSelects(t ? t.itemId : finFilter.item || '', t ? t.recipientId : '');
   txForm.contract.checked = t ? t.contract : false;
   txForm.notes.value = t ? t.notes : '';
-  dlgTx.att = { invoice: t && t.invoice ? { ...t.invoice } : null, receipt: t && t.receipt ? { ...t.receipt } : null };
+  dlgTx.att = Object.fromEntries(ATT_KINDS.map(k => [k, t && t[k] ? { ...t[k] } : null]));
   renderTxAtt();
   $('#txDelete').style.display = t ? '' : 'none';
   $('#txAgain').style.display = t ? 'none' : '';
@@ -2475,7 +2486,7 @@ txForm.date.addEventListener('change', updateTxHint);
 txForm.recipient.addEventListener('change', () => { if (txForm.recipient.value === '__new') { txForm.recipient.value = ''; openRecDlg(true); } });
 // anexos no diálogo
 function renderTxAtt() {
-  for (const kind of ['invoice', 'receipt']) {
+  for (const kind of ATT_KINDS) {
     const a = dlgTx.att[kind], box = txForm.querySelector(`.att[data-kind="${kind}"]`);
     box.querySelector('input').value = a ? a.path : '';
     box.querySelector('[data-a=open]').disabled = !a;
@@ -2499,6 +2510,7 @@ txForm.querySelectorAll('.att').forEach(box => {
         const prevPath = cleanPath(box.querySelector('input').value);
         const a = await pickAttachment();
         dlgTx.att[kind] = { ...a, path: a.path || (baseName(prevPath) === a.name ? prevPath : '') };
+        if (kind === 'contractDoc') txForm.contract.checked = true;
         renderTxAtt();
       } catch (err) { if (err.name !== 'AbortError') toast(err.message); }
     }
@@ -2517,17 +2529,17 @@ txForm.addEventListener('submit', e => {
   const amount = parseMoney(txForm.amount.value);
   if (!Number.isFinite(amount) || amount <= 0) { toast('Valor inválido — use, por exemplo, 1.234,56'); txForm.amount.focus(); return; }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(txForm.date.value)) { txForm.date.focus(); return; }
-  const invoice = readTxAtt('invoice'), receipt = readTxAtt('receipt');
-  for (const [k, a] of [['invoice', invoice], ['receipt', receipt]])
+  const invoice = readTxAtt('invoice'), receipt = readTxAtt('receipt'), contractDoc = readTxAtt('contractDoc');
+  for (const [k, a] of [['invoice', invoice], ['receipt', receipt], ['contractDoc', contractDoc]])
     if (a && !ATT_EXT.test(a.path || a.name)) { toast(`${ATT_KIND[k]}: use um arquivo PDF, PNG, JPG ou JPEG`); txForm.querySelector(`.att[data-kind="${k}"] input`).focus(); return; }
-  const data = { date: txForm.date.value, amount, itemId: txForm.item.value, direction: dlgTx.dir, recipientId: finRec(txForm.recipient.value) ? txForm.recipient.value : null, contract: txForm.contract.checked, notes: txForm.notes.value.trim(), invoice, receipt };
+  const data = { date: txForm.date.value, amount, itemId: txForm.item.value, direction: dlgTx.dir, recipientId: finRec(txForm.recipient.value) ? txForm.recipient.value : null, contract: txForm.contract.checked || !!contractDoc, notes: txForm.notes.value.trim(), invoice, receipt, contractDoc };
   fmutate(() => {
     if (dlgTx.id) { Object.assign(state.finance.transactions.find(x => x.id === dlgTx.id), data); lastTxEdited = dlgTx.id; }
     else { const nid = uid(); state.finance.transactions.push({ id: nid, ...data }); lastTxEdited = nid; }
   });
   if (again) { // mantém data, item e direção para lançar a próxima
     toast('Transação registrada'); txForm.amount.value = ''; txForm.notes.value = ''; txForm.contract.checked = false;
-    dlgTx.att = { invoice: null, receipt: null }; renderTxAtt(); txForm.amount.focus();
+    dlgTx.att = { invoice: null, receipt: null, contractDoc: null }; renderTxAtt(); txForm.amount.focus();
     setTimeout(updateTxHint, 10);
   } else txDlg.close();
 });
@@ -2745,7 +2757,7 @@ function buildFinCSV(view, o, sep) {
       const it = finItem(t.itemId), r = finRec(t.recipientId) || {};
       const val = { date: fmtDateBR(t.date), dir: t.direction === 'out' ? 'Saída' : 'Entrada', item: it ? it.name : '(item removido)', rec: r.name || '',
         value: csvNum(t.amount, sep), contract: t.contract ? 'Sim' : 'Não', invoice: t.invoice ? (t.invoice.path || attName(t.invoice)) : '',
-        receipt: t.receipt ? (t.receipt.path || attName(t.receipt)) : '', notes: t.notes, category: it ? it.category : '', phone: r.phone || '', email: r.email || '', pix: r.pix || '' };
+        receipt: t.receipt ? (t.receipt.path || attName(t.receipt)) : '', contractDoc: t.contractDoc ? (t.contractDoc.path || attName(t.contractDoc)) : '', notes: t.notes, category: it ? it.category : '', phone: r.phone || '', email: r.email || '', pix: r.pix || '' };
       rows.push(cols.map(c => val[c.key]));
     }
   }
