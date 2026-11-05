@@ -2191,8 +2191,8 @@ function historyHTML(opts = {}) {
       case 'contract': {
         const a = t.contractDoc;
         if (a) return attCell(t, 'contractDoc');
-        if (RO) return `<td class="ctr">${t.contract ? '✓' : '<span class="muted">—</span>'}</td>`;
-        return `<td class="att ctr">${t.contract ? '<span class="ok" title="Possui contrato (arquivo não anexado)">✓</span> ' : ''}<button class="attadd" data-act="pick-att" data-kind="contractDoc" title="Anexar contrato (PDF, PNG, JPG)">＋ anexar</button></td>`;
+        if (RO) return '<td class="att muted">—</td>';
+        return `<td class="att"><button class="attadd" data-act="pick-att" data-kind="contractDoc" title="Anexar contrato (PDF, PNG, JPG)">＋ anexar</button></td>`;
       }
       case 'invoice': case 'receipt': return attCell(t, key);
       case 'notes': return RO ? `<td class="notes">${esc(t.notes)}</td>` : `<td class="notes"><input class="fi note" data-k="o:${t.id}" value="${esc(t.notes)}" title="${esc(t.notes || 'Clique para escrever uma observação')}" placeholder="adicionar observação…"></td>`;
