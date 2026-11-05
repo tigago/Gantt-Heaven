@@ -145,6 +145,7 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
   <button id="btnOpen" title="Abrir arquivo (Ctrl+O)">📂 Abrir</button>
   <button id="btnSave" title="Salvar (Ctrl+S)">💾 Salvar</button>
   <button id="btnSaveAs" title="Salvar como (Ctrl+Shift+S)">Salvar como…</button>
+  <button id="btnPdf" title="Exportar diagrama em PDF (Ctrl+P)">🖨️ PDF</button>
   <div class="sep"></div>
   <button id="btnAdd" class="primary" title="Nova tarefa (Insert)">+ Tarefa</button>
   <button id="btnMembers">👥 Membros</button>
@@ -216,7 +217,7 @@ kbd{background:#f0f2f8;border:1px solid var(--line);border-radius:4px;padding:1p
       <tr><td>Editar detalhes</td><td>Duplo clique na barra ou na linha (ou <kbd>Enter</kbd>)</td></tr>
       <tr><td>Reordenar</td><td>Arraste o ícone ⠿ na lista</td></tr>
       <tr><td>Membros</td><td>Botão 👥 Membros. Clique num membro da legenda para destacar as tarefas dele.</td></tr>
-      <tr><td>Atalhos</td><td><kbd>Ctrl+S</kbd> salvar · <kbd>Ctrl+O</kbd> abrir · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> desfazer/refazer · <kbd>Insert</kbd> nova tarefa · <kbd>Delete</kbd> excluir · <kbd>Ctrl</kbd>+roda = zoom</td></tr>
+      <tr><td>Atalhos</td><td><kbd>Ctrl+S</kbd> salvar · <kbd>Ctrl+O</kbd> abrir · <kbd>Ctrl+P</kbd> exportar PDF · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> desfazer/refazer · <kbd>Insert</kbd> nova tarefa · <kbd>Delete</kbd> excluir · <kbd>Ctrl</kbd>+roda = zoom</td></tr>
       <tr><td>Salvamento</td><td>Tudo é salvo automaticamente no navegador. Use Salvar para gravar um arquivo <i>.json</i> (pode arrastar o arquivo para a janela para abrir).</td></tr>
     </table>
     <div class="actions"><span style="flex:1"></span><button id="helpClose" class="primary">Entendi</button></div>
@@ -425,7 +426,7 @@ function renderTimeline() {
     for (let k = 0; k < range.days; k += 7) {
       const idx = range.start + k, x = k * dayW, w = Math.min(7, range.days - k) * dayW;
       const mid = new Date((idx + 3) * DAY);
-      const label = dayW * 7 >= 110 ? `Sem ${isoWeek(idx)} · ${MONTHS[mid.getUTCMonth()]}` : `S${isoWeek(idx)}`;
+      const label = w < 50 ? '' : dayW * 7 >= 110 && w >= 100 ? `Sem ${isoWeek(idx)} · ${MONTHS[mid.getUTCMonth()]}` : `S${isoWeek(idx)}`;
       s += `<text x="${x + w / 2}" y="17" text-anchor="middle" class="mlbl" style="fill:#6b7385;font-weight:600">${label}</text>`;
       s += `<line x1="${x}" x2="${x}" y1="6" y2="${HEAD}" stroke="#e4e7ef"/>`;
     }
@@ -635,6 +636,88 @@ function loadText(text, handle) {
   } catch (e) { alert('Não foi possível abrir o arquivo: ' + e.message); }
 }
 $('#fileInput').addEventListener('change', async e => { const f = e.target.files[0]; if (f) loadText(await f.text()); e.target.value = ''; });
+
+// ---------- Exportar PDF ----------
+// Monta uma página de impressão com o diagrama inteiro; o usuário escolhe "Salvar como PDF".
+function buildExportHTML() {
+  const tasks = state.tasks;
+  let min = todayIdx(), max = min + 1;
+  if (tasks.length) { min = Math.min(...tasks.map(t => t.start)); max = Math.max(...tasks.map(t => t.start + t.duration)); }
+  const start = (min - 2) - mod(min - 2 + 3, 7); // segunda-feira antes do início
+  const LW = 400, TOP = 70, PW = 1047, PH = 700; // A4 paisagem com margem de 10mm ≈ 1047×718 px
+  let days = Math.max(14, max + 3 - start);
+  const dw = clamp(Math.floor((PW - LW) / (days + 4)), 6, 36);
+  days += Math.ceil(130 / dw); // espaço para nomes exibidos à direita de barras curtas
+
+  // renderiza com o intervalo do projeto, sem seleção/destaque, e restaura a tela
+  const saved = { range, dayW, selectedId, highlightMember };
+  range = { start, days }; dayW = dw; selectedId = null; highlightMember = null;
+  renderTimeline(); renderChart();
+  const tl = timelineEl.innerHTML, ch = chartEl.innerHTML;
+  ({ range, dayW, selectedId, highlightMember } = saved);
+  render();
+
+  const W = LW + days * dw, H = TOP + HEAD + tasks.length * ROW + 4;
+  const z = Math.min(1, PW / W, PH / H);
+  let page, zoom;
+  if (z >= 0.45) { page = 'A4 landscape'; zoom = z; }
+  else { page = `${Math.ceil(W + 76)}px ${Math.ceil(H + 76)}px`; zoom = 1; } // projeto grande: página única do tamanho do diagrama
+
+  const rows = tasks.map((t, i) => `<div class="prow"><span class="pn">${i + 1}</span><span class="pname">${esc(t.name)}</span><span>${fmt(t.start)}</span><span>${fmt(t.start + t.duration - 1)}</span><span class="pr">${t.duration}</span><span class="avs">${avatarsHTML(t.members)}</span></div>`).join('');
+  const legend = state.members.map(m => `<span class="pchip"><span class="dot" style="background:${m.color}"></span>${esc(m.name)}</span>`).join('');
+  const now = new Date();
+  const css = document.querySelector('style').textContent + `
+    @page{size:${page};margin:10mm}
+    html,body{height:auto;overflow:visible;display:block;background:#fff}
+    body{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .sheet{zoom:${zoom};width:${W}px}
+    .ph{height:${TOP}px;display:flex;flex-direction:column;justify-content:center;gap:4px;overflow:hidden}
+    .ph h1{margin:0;font-size:20px}
+    .ph .meta{color:#6b7385;font-size:12px;display:flex;gap:14px;align-items:center;white-space:nowrap}
+    .pchip{display:inline-flex;align-items:center;gap:4px;color:#1d2433}
+    .pchip .dot{width:10px;height:10px;border-radius:50%}
+    .pg{break-inside:avoid;display:grid;grid-template-columns:${LW}px ${days * dw}px;border:1px solid #e4e7ef;border-radius:8px;overflow:hidden}
+    .pcorner{height:${HEAD}px;border-bottom:1px solid #e4e7ef;border-right:1px solid #e4e7ef;display:flex;align-items:flex-end}
+    .pcorner .prow{height:28px;border:none;color:#6b7385;font-size:10px;font-weight:600;text-transform:uppercase}
+    .ptl{height:${HEAD}px;border-bottom:1px solid #e4e7ef;overflow:hidden}
+    .plist{border-right:1px solid #e4e7ef}
+    .pchart{height:${tasks.length * ROW}px;overflow:hidden}
+    .prow{display:grid;grid-template-columns:24px 1fr 56px 56px 30px 64px;gap:0 4px;align-items:center;height:${ROW}px;border-bottom:1px solid #f0f1f5;font-size:12px;padding-right:6px;width:100%}
+    .prow .pn{color:#6b7385;text-align:right;padding-right:4px;font-size:11px}
+    .prow .pname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+    .prow .pr{text-align:right}
+    .prow .avs{padding-left:6px}
+    .connector,.grip,.handle,.link-hit{display:none}
+    .bar,.bar .body{filter:none}`;
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(state.name)}</title><style>${css}</style></head><body>
+    <div class="sheet">
+      <div class="ph"><h1>${esc(state.name)}</h1>
+        <div class="meta"><span>${tasks.length ? `${fmtLong(min)} → ${fmtLong(max - 1)} · ${plural(max - min)}` : 'Sem tarefas'} · ${tasks.length} tarefa${tasks.length === 1 ? '' : 's'}</span>${legend}<span style="margin-left:auto">Gerado em ${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span></div>
+      </div>
+      <div class="pg">
+        <div class="pcorner"><div class="prow"><span>#</span><span>Tarefa</span><span>Início</span><span>Fim</span><span class="pr">Dias</span><span style="padding-left:6px">Time</span></div></div>
+        <div class="ptl">${tl}</div>
+        <div class="plist">${rows}</div>
+        <div class="pchart">${ch}</div>
+      </div>
+    </div></body></html>`;
+  return html;
+}
+
+function exportPDF() {
+  if (!state.tasks.length) { toast('Adicione tarefas antes de exportar'); return; }
+  const f = document.createElement('iframe');
+  f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  document.body.appendChild(f);
+  const d = f.contentDocument; d.open(); d.write(buildExportHTML()); d.close();
+  const oldTitle = document.title;
+  document.title = state.name; // nome sugerido do arquivo PDF
+  toast('Escolha "Salvar como PDF" no destino da impressão');
+  setTimeout(() => {
+    try { f.contentWindow.focus(); f.contentWindow.print(); }
+    finally { setTimeout(() => { f.remove(); document.title = oldTitle; }, 1000); }
+  }, 300);
+}
 
 let toastTimer;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2400); }
@@ -924,6 +1007,7 @@ $('#btnNew').onclick = () => {
 $('#btnOpen').onclick = openFile;
 $('#btnSave').onclick = () => saveFile(false);
 $('#btnSaveAs').onclick = () => saveFile(true);
+$('#btnPdf').onclick = exportPDF;
 $('#btnAdd').onclick = addTask;
 $('#btnMembers').onclick = openMemDlg;
 $('#btnUndo').onclick = undo;
@@ -941,6 +1025,7 @@ document.addEventListener('keydown', e => {
   const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
   if (mod && k === 's') { e.preventDefault(); saveFile(e.shiftKey); return; }
   if (mod && k === 'o') { e.preventDefault(); openFile(); return; }
+  if (mod && k === 'p') { e.preventDefault(); exportPDF(); return; }
   if (document.querySelector('dialog[open]')) return;
   if (e.target.matches('input,textarea,select')) return;
   if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
