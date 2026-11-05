@@ -1861,6 +1861,28 @@ async function resolveDocPath(file) {
   return hit ? joinDocPath(root, hit.rel) : '';
 }
 
+// 🔄 atualiza a lista da mesma pasta: com acesso a pastas, relê sem perguntar; senão, pede para selecioná-la de novo
+async function refreshDocsFolder() {
+  const idx = await getDocIndex();
+  try {
+    let next = null;
+    if (idx && idx.handle && idx.handle.queryPermission) {
+      let perm = await idx.handle.queryPermission({ mode: 'read' });
+      if (perm !== 'granted') perm = await idx.handle.requestPermission({ mode: 'read' });
+      if (perm === 'granted') next = { ...idx, files: await scanDirHandle(idx.handle, '', []), at: Date.now() };
+    }
+    if (!next) {
+      if (idx) toast(`Selecione novamente a pasta "${idx.folder}"`, 4000);
+      const r = await pickDocsFolder();
+      if (idx && norm(r.folder) !== norm(idx.folder) && !confirm(`A pasta selecionada ("${r.folder}") é diferente da configurada ("${idx.folder}"). Usar mesmo assim?`)) return;
+      next = { folder: r.folder, files: r.files, handle: r.handle || null, at: Date.now() };
+    }
+    await fileDB.set(DOCIDX_KEY, next);
+    const diff = idx ? next.files.length - idx.files.length : 0;
+    toast(`🔄 Lista atualizada: ${next.files.length} arquivo(s)${diff > 0 ? ` (+${diff} novo${diff > 1 ? 's' : ''})` : ''}`, 3500);
+  } catch (e) { if (e.name !== 'AbortError') toast('Não foi possível atualizar a pasta: ' + e.message); }
+}
+
 // diálogo
 const docsDlg = $('#docsDlg');
 let docsPending = null;
@@ -2124,7 +2146,7 @@ function historyHTML(opts = {}) {
   let h = `<div class="fin-toolbar">
     <button class="primary" data-act="add-tx">+ Transação</button>
     <button data-act="recipients">👤 Destinatários</button>
-    <button data-act="docs-folder" title="Pasta onde ficam as notas fiscais e comprovantes (preenche o caminho dos anexos automaticamente)">📁 Pasta dos documentos${f.docsRoot ? ' ✓' : ''}</button>
+    <button data-act="docs-folder" title="Pasta onde ficam as notas fiscais e comprovantes (preenche o caminho dos anexos automaticamente)">📁 Pasta dos documentos${f.docsRoot ? ' ✓' : ''}</button>${f.docsRoot ? '<button data-act="docs-refresh" title="Atualizar a lista de arquivos da pasta dos documentos (reseleciona a mesma pasta)">🔄</button>' : ''}
     <div class="sep"></div>
     <select id="fMonth" title="Filtrar por mês"><option value="">Todos os meses</option>${months.map(m => `<option value="${m}"${finFilter.month === m ? ' selected' : ''}>${ymLong(m)}</option>`).join('')}</select>
     <select id="fItem" title="Filtrar por item"><option value="">Todos os itens</option>${f.items.map(i => `<option value="${i.id}"${finFilter.item === i.id ? ' selected' : ''}>${esc(itemLabel(i))}</option>`).join('')}</select>
@@ -2262,6 +2284,7 @@ finEl.addEventListener('click', e => {
     case 'del-tx': { const t = state.finance.transactions.find(x => x.id === id); if (t && confirm(`Excluir a transação de ${money(t.amount)} em ${fmtDateBR(t.date)}?`)) fmutate(() => state.finance.transactions = state.finance.transactions.filter(x => x.id !== id)); break; }
     case 'recipients': openRecDlg(); break;
     case 'docs-folder': openDocsDlg(); break;
+    case 'docs-refresh': refreshDocsFolder(); break;
     case 'exp-pdf': openFinExport(finSub, 'pdf'); break;
     case 'exp-csv': openFinExport(finSub, 'csv'); break;
     case 'open-att': { const t = state.finance.transactions.find(x => x.id === id); if (t) openAttachment(t[a.dataset.kind]); break; }
