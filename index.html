@@ -1749,9 +1749,24 @@ const fileDB = (() => {
   const run = async (mode, fn) => { const db = await open(); return new Promise((res, rej) => { const t = db.transaction('handles', mode); const rq = fn(t.objectStore('handles')); t.oncomplete = () => res(rq && rq.result); t.onerror = () => rej(t.error); }); };
   return { get: k => run('readonly', s => s.get(k)), set: (k, v) => run('readwrite', s => s.put(v, k)) };
 })();
-const canPick = () => !!window.showOpenFilePicker;
+const canPick = () => true; // sempre há seletor: File System Access API ou <input type=file>
+// Seletor padrão <input type=file>: funciona em qualquer navegador (usado quando não há File System Access API).
+// Precisa ser chamado direto no clique do usuário (sem await antes).
+function pickFileClassic() {
+  return new Promise((resolve, reject) => {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = '.pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg';
+    inp.style.display = 'none'; document.body.appendChild(inp);
+    const done = () => setTimeout(() => inp.remove(), 0);
+    inp.addEventListener('change', () => { done(); inp.files[0] ? resolve(inp.files[0]) : reject(new DOMException('cancelado', 'AbortError')); }, { once: true });
+    inp.addEventListener('cancel', () => { done(); reject(new DOMException('cancelado', 'AbortError')); }, { once: true });
+    inp.click();
+  });
+}
 async function pickAttachment() {
-  const [h] = await showOpenFilePicker({ excludeAcceptAllOption: true, types: [{ description: 'PDF ou imagem', accept: { 'application/pdf': ['.pdf'], 'image/png': ['.png'], 'image/jpeg': ['.jpg', '.jpeg'] } }] });
+  const types = [{ description: 'PDF ou imagem', accept: { 'application/pdf': ['.pdf'], 'image/png': ['.png'], 'image/jpeg': ['.jpg', '.jpeg'] } }];
+  // com File System Access API: vínculo direto com o arquivo; sem ela: cópia guardada no navegador
+  const h = window.showOpenFilePicker ? (await showOpenFilePicker({ excludeAcceptAllOption: true, types }))[0] : await pickFileClassic();
   if (!ATT_EXT.test(h.name)) throw new Error('Formato não suportado (use PDF, PNG, JPG ou JPEG)');
   const hid = uid();
   try { await fileDB.set(hid, h); } catch (e) { return { name: h.name, path: '', hid: '' }; }
@@ -1770,7 +1785,12 @@ async function openAttachment(a) {
   try {
     if (a.hid) {
       const h = await fileDB.get(a.hid);
-      if (h) {
+      if (h instanceof Blob) { // cópia guardada no navegador
+        const url = URL.createObjectURL(h);
+        if (w) w.location = url; else window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 120000); return;
+      }
+      if (h && h.queryPermission) {
         let perm = await h.queryPermission({ mode: 'read' });
         if (perm !== 'granted') perm = await h.requestPermission({ mode: 'read' });
         if (perm === 'granted') {
@@ -2271,7 +2291,7 @@ function renderTxAtt() {
     box.querySelector('[data-a=open]').disabled = !a;
     box.querySelector('[data-a=clear]').disabled = !a;
     box.querySelector('[data-a=pick]').style.display = canPick() ? '' : 'none';
-    box.querySelector('small').textContent = a && a.hid ? `📎 "${a.name}" vinculado neste navegador${a.path ? '' : ' — cole também o caminho completo para abrir em outros computadores'}` : '';
+    box.querySelector('small').textContent = a && a.hid ? `📎 "${a.name}" ${window.showOpenFilePicker ? 'vinculado' : 'guardado'} neste navegador${a.path ? '' : ' — cole também o caminho completo para abrir em outros computadores'}` : '';
   }
 }
 function readTxAtt(kind) { // lê o campo de caminho e mescla com o vínculo escolhido
@@ -2560,7 +2580,7 @@ async function exportFinCSV(view, o, sep) {
 // ---------- Projetos recentes ----------
 // Para cada projeto aberto/salvo guarda: nome do arquivo, título, data, uma cópia do conteúdo
 // e — quando o navegador permite (File System Access API) — o vínculo com o arquivo original.
-// Assim funciona também no Brave, que desativa essa API por padrão (reabre a cópia salva).
+// Sem essa API (ou se o arquivo sumiu), reabre a cópia salva — funciona em qualquer navegador.
 const RECENT_KEY = 'recents', RECENT_MAX = 10;
 async function getRecents() { try { return (await fileDB.get(RECENT_KEY)) || []; } catch (e) { return []; } }
 async function addRecent(handle, title, data, fileName) {
