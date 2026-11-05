@@ -501,7 +501,7 @@ dialog.xwide{width:min(940px,96vw)}
     <div class="att" data-kind="receipt"><span class="lbl">Comprovante</span>
       <div class="attrow"><input type="text" placeholder="Caminho do arquivo, ex.: C:\Comprovantes\pix.png" spellcheck="false"><button type="button" data-a="pick" title="Escolher arquivo (PDF, PNG, JPG)">📂 Escolher…</button><button type="button" data-a="open" title="Abrir">👁</button><button type="button" data-a="clear" title="Remover">✕</button></div>
       <small class="muted"></small></div>
-    <div class="att" data-kind="contractDoc"><span class="lbl" style="display:flex;align-items:center;gap:14px">Contrato <label class="check" style="font-weight:400;color:var(--text);font-size:12.5px;margin:0"><input type="checkbox" name="contract"> Possui contrato</label></span>
+    <div class="att" data-kind="contractDoc"><span class="lbl">Contrato</span>
       <div class="attrow"><input type="text" placeholder="Caminho do arquivo, ex.: C:\Contratos\contrato.pdf" spellcheck="false"><button type="button" data-a="pick" title="Escolher arquivo (PDF, PNG, JPG)">📂 Escolher…</button><button type="button" data-a="open" title="Abrir">👁</button><button type="button" data-a="clear" title="Remover">✕</button></div>
       <small class="muted"></small></div>
     <div class="muted" style="font-size:11px;margin-top:-6px">Dica: no Explorador de Arquivos, Shift + clique direito no arquivo → "Copiar como caminho" e cole aqui.</div>
@@ -2465,7 +2465,7 @@ function openTxDlg(id) {
   txForm.date.value = t ? t.date : fromIdx(todayIdx());
   txForm.amount.value = t ? numStr(t.amount) : '';
   fillTxSelects(t ? t.itemId : finFilter.item || '', t ? t.recipientId : '');
-  txForm.contract.checked = t ? t.contract : false;
+  dlgTx.contract = t ? t.contract : false; dlgTx.hadContractDoc = !!(t && t.contractDoc);
   txForm.notes.value = t ? t.notes : '';
   dlgTx.att = Object.fromEntries(ATT_KINDS.map(k => [k, t && t[k] ? { ...t[k] } : null]));
   renderTxAtt();
@@ -2510,7 +2510,6 @@ txForm.querySelectorAll('.att').forEach(box => {
         const prevPath = cleanPath(box.querySelector('input').value);
         const a = await pickAttachment();
         dlgTx.att[kind] = { ...a, path: a.path || (baseName(prevPath) === a.name ? prevPath : '') };
-        if (kind === 'contractDoc') txForm.contract.checked = true;
         renderTxAtt();
       } catch (err) { if (err.name !== 'AbortError') toast(err.message); }
     }
@@ -2532,13 +2531,13 @@ txForm.addEventListener('submit', e => {
   const invoice = readTxAtt('invoice'), receipt = readTxAtt('receipt'), contractDoc = readTxAtt('contractDoc');
   for (const [k, a] of [['invoice', invoice], ['receipt', receipt], ['contractDoc', contractDoc]])
     if (a && !ATT_EXT.test(a.path || a.name)) { toast(`${ATT_KIND[k]}: use um arquivo PDF, PNG, JPG ou JPEG`); txForm.querySelector(`.att[data-kind="${k}"] input`).focus(); return; }
-  const data = { date: txForm.date.value, amount, itemId: txForm.item.value, direction: dlgTx.dir, recipientId: finRec(txForm.recipient.value) ? txForm.recipient.value : null, contract: txForm.contract.checked || !!contractDoc, notes: txForm.notes.value.trim(), invoice, receipt, contractDoc };
+  const data = { date: txForm.date.value, amount, itemId: txForm.item.value, direction: dlgTx.dir, recipientId: finRec(txForm.recipient.value) ? txForm.recipient.value : null, contract: !!contractDoc || (dlgTx.contract && !dlgTx.hadContractDoc), notes: txForm.notes.value.trim(), invoice, receipt, contractDoc };
   fmutate(() => {
     if (dlgTx.id) { Object.assign(state.finance.transactions.find(x => x.id === dlgTx.id), data); lastTxEdited = dlgTx.id; }
     else { const nid = uid(); state.finance.transactions.push({ id: nid, ...data }); lastTxEdited = nid; }
   });
   if (again) { // mantém data, item e direção para lançar a próxima
-    toast('Transação registrada'); txForm.amount.value = ''; txForm.notes.value = ''; txForm.contract.checked = false;
+    toast('Transação registrada'); txForm.amount.value = ''; txForm.notes.value = ''; dlgTx.contract = false; dlgTx.hadContractDoc = false;
     dlgTx.att = { invoice: null, receipt: null, contractDoc: null }; renderTxAtt(); txForm.amount.focus();
     setTimeout(updateTxHint, 10);
   } else txDlg.close();
