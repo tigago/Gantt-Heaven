@@ -1793,7 +1793,15 @@ function pickFileClassic() {
 async function pickAttachment() {
   const types = [{ description: 'PDF ou imagem', accept: { 'application/pdf': ['.pdf'], 'image/png': ['.png'], 'image/jpeg': ['.jpg', '.jpeg'] } }];
   // com File System Access API: vínculo direto com o arquivo; sem ela: cópia guardada no navegador
-  const h = window.showOpenFilePicker ? (await showOpenFilePicker({ excludeAcceptAllOption: true, types }))[0] : await pickFileClassic();
+  let h;
+  if (window.showOpenFilePicker) {
+    // começa na pasta dos documentos, se ela foi selecionada neste navegador (o seletor só aceita a pasta já autorizada, não um caminho em texto)
+    const idx = state.finance.docsRoot ? await getDocIndex() : null;
+    const opts = { excludeAcceptAllOption: true, types };
+    if (idx && idx.handle && idx.handle.kind === 'directory') opts.startIn = idx.handle;
+    try { [h] = await showOpenFilePicker(opts); }
+    catch (e) { if (e.name === 'AbortError' || !opts.startIn) throw e; delete opts.startIn; [h] = await showOpenFilePicker(opts); }
+  } else h = await pickFileClassic();
   if (!ATT_EXT.test(h.name)) throw new Error('Formato não suportado (use PDF, PNG, JPG ou JPEG)');
   let path = '';
   try { path = await resolveDocPath(h.getFile ? await h.getFile() : h); } catch (e) {}
