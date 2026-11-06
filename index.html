@@ -489,6 +489,8 @@ dialog.xwide{width:min(940px,96vw)}
     <label class="check"><input type="checkbox" name="onlyIn" checked> Mostrar só as tarefas que ocorrem no período</label>
     <label class="check"><input type="checkbox" name="useFilt"> Aplicar os filtros atuais do cronograma <span id="pdfFiltInfo" style="color:var(--muted);font-size:12px"></span></label>
     <label class="check"><input type="checkbox" name="showMarks"> Mostrar períodos destacados <span id="pdfMarksInfo" style="color:var(--muted);font-size:12px"></span></label>
+    <label class="check"><input type="checkbox" name="showToday"> Mostrar a linha de "hoje"</label>
+    <label class="check"><input type="checkbox" name="showProgress"> Mostrar o progresso das tarefas (sombra nas barras)</label>
     <div class="grid2">
       <label>Tamanho do papel<select name="paper">
         <option value="auto" title="A4; usa página única do tamanho do diagrama se ele for grande demais">Automático</option>
@@ -834,6 +836,8 @@ function filterDesc() {
   return parts.join(' · ');
 }
 let noSections = false; // exportação: sem as linhas de seção (a tabela do PDF lista só as tarefas)
+let exportShow = null; // exportação: { today, progress } — o que desenhar no PDF (null = tela)
+const showToday = () => !exportShow || exportShow.today, showProgress = () => !exportShow || exportShow.progress;
 const secClosed = new Set(); // tarefas com as seções recolhidas (só na tela)
 // linhas do cronograma: cada tarefa visível seguida das suas seções (se expandidas)
 function rowModel() {
@@ -981,7 +985,7 @@ function renderTimeline() {
     const idx = range.start + k, wd = weekday(idx), x = k * dayW;
     const dn = new Date(idx * DAY).getUTCDate();
     if (mode === 'day' && (wd === 0 || wd === 6) && dayW >= 8) s += `<rect x="${x}" y="27" width="${dayW}" height="${HEAD - 27}" fill="#f4f5f9"/>`;
-    const st = idx === today ? `fill:${TODAY_COLOR};font-weight:700` : 'fill:#1d2433;font-weight:600';
+    const st = idx === today && showToday() ? `fill:${TODAY_COLOR};font-weight:700` : 'fill:#1d2433;font-weight:600';
     if (dayW >= 40) s += `<text x="${x + dayW / 2}" y="45" text-anchor="middle" class="dlbl" style="${st}">${WD[wd]} ${dn}</text>`;
     else if (dayW >= 18) s += `<text x="${x + dayW / 2}" y="45" text-anchor="middle" class="dlbl" style="${st}">${dn}</text>`;
     else if (wd === 1) s += `<line x1="${x}" x2="${x}" y1="27" y2="${HEAD}" stroke="#e4e7ef"/><text x="${x + 3}" y="45" class="dlbl">${dayW * 7 >= 26 ? dn : ''}</text>`;
@@ -990,7 +994,7 @@ function renderTimeline() {
   if (mode !== 'day' && mode !== topUnit) for (const g of segments(range.start, range.days, mode))
     s += `<line x1="${(g.s - range.start) * dayW}" x2="${(g.s - range.start) * dayW}" y1="27" y2="${HEAD}" stroke="#d5dae6"/>`;
   const tx = (today - range.start) * dayW + dayW / 2;
-  s += `<line x1="${tx}" x2="${tx}" y1="${dayW >= 18 ? 50 : 27}" y2="${HEAD}" stroke="${TODAY_COLOR}" stroke-width="1.5"/>`;
+  if (showToday()) s += `<line x1="${tx}" x2="${tx}" y1="${dayW >= 18 ? 50 : 27}" y2="${HEAD}" stroke="${TODAY_COLOR}" stroke-width="1.5"/>`;
   timelineEl.innerHTML = s + '</svg>';
   timelineEl.title = `Clique para destacar a ${UNIT_NAME[mode] === 'mês' ? 'coluna do mês' : UNIT_NAME[mode]} (clique num destaque para removê-lo)`;
 }
@@ -1057,7 +1061,7 @@ function renderChart() {
     bg += `<line class="rowline${inner ? ' inner' : ''}" x1="0" x2="${W}" y1="${(i + 1) * ROW - .5}" y2="${(i + 1) * ROW - .5}"/>`;
   });
   const tx = (today - range.start) * dayW + dayW / 2;
-  const todayLine = `<line x1="${tx}" x2="${tx}" y1="0" y2="${H}" stroke="${TODAY_COLOR}" stroke-width="1.5" pointer-events="none"/>`;
+  const todayLine = showToday() ? `<line x1="${tx}" x2="${tx}" y1="0" y2="${H}" stroke="${TODAY_COLOR}" stroke-width="1.5" pointer-events="none"/>` : '';
 
   const index = new Map(); rows.forEach((r, i) => { if (!r.s) index.set(r.t.id, i); });
   tasks.forEach(t => {
@@ -1094,7 +1098,7 @@ function renderChart() {
     b += `<rect class="selring" x="${x - 4}" y="${y - 4}" width="${w + 8}" height="${H_BAR + 8}" rx="${rx + 4}"/>`;
     // a categoria aparece como fundo da linha (faixa), não como borda da barra
     b += `<rect class="body" x="${x}" y="${y}" width="${w}" height="${H_BAR}" rx="${rx}" fill="${color}"${cat ? ' stroke="rgba(0,0,0,.12)" stroke-width="1"' : ''}/>`;
-    if (t.progress > 0) {
+    if (t.progress > 0 && showProgress()) {
       defs.push(`<clipPath id="c_${t.id}"><rect x="${x}" y="${y}" width="${w}" height="${H_BAR}" rx="${rx}"/></clipPath>`);
       b += `<rect x="${x}" y="${y}" width="${w * t.progress / 100}" height="${H_BAR}" fill="rgba(0,0,0,.18)" clip-path="url(#c_${t.id})" pointer-events="none"/>`;
     }
@@ -1257,10 +1261,10 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
   const allTasks = state.tasks, allMarks = state.marks;
   state.tasks = tasks; // só as tarefas exportadas (dependências para tarefas fora do período são omitidas)
   if (!showMarks) state.marks = [];
-  noSections = true;
+  noSections = true; exportShow = { today: opts.today !== false, progress: opts.progress !== false };
   let tl = '', ch = '';
-  if (withChart) try { renderTimeline(); renderChart(); tl = timelineEl.innerHTML; ch = chartEl.innerHTML; } finally { state.tasks = allTasks; state.marks = allMarks; noSections = false; }
-  else { state.tasks = allTasks; state.marks = allMarks; noSections = false; }
+  if (withChart) try { renderTimeline(); renderChart(); tl = timelineEl.innerHTML; ch = chartEl.innerHTML; } finally { state.tasks = allTasks; state.marks = allMarks; noSections = false; exportShow = null; }
+  else { state.tasks = allTasks; state.marks = allMarks; noSections = false; exportShow = null; }
   ({ range, dayW, selectedId, highlightMember, highlightCategory } = saved);
   render();
 
@@ -1480,6 +1484,7 @@ function exportPDF() {
   $('#pdfFiltInfo').textContent = fdesc ? `(${fdesc})` : '(nenhum filtro ativo)';
   updatePdfInfo();
   pdfForm.showMarks.checked = prefs.pdfMarks && state.marks.length > 0;
+  pdfForm.showToday.checked = prefs.pdfToday !== false; pdfForm.showProgress.checked = prefs.pdfProgress !== false;
   pdfForm.showMarks.disabled = !state.marks.length;
   $('#pdfMarksInfo').textContent = state.marks.length ? `(${state.marks.length})` : '(nenhum no projeto)';
   renderColPicker($('#pdfCols'), TABLE_COLS, prefs.pdfCols);
@@ -1493,7 +1498,7 @@ pdfForm.onlyIn.addEventListener('change', updatePdfInfo);
 function syncPdfParts() {
   if (!pdfForm.withChart.checked) pdfForm.withTable.checked = true;
   pdfForm.withTable.disabled = !pdfForm.withChart.checked;
-  pdfForm.showMarks.closest('label').style.opacity = pdfForm.withChart.checked ? '' : '.5';
+  for (const n of ['showMarks', 'showToday', 'showProgress']) pdfForm[n].closest('label').style.opacity = pdfForm.withChart.checked ? '' : '.5'; // só valem para o gráfico
   $('#pdfCols').classList.toggle('off', !pdfForm.withTable.checked);
 }
 pdfForm.withTable.addEventListener('change', syncPdfParts);
@@ -1512,8 +1517,9 @@ pdfForm.addEventListener('submit', e => {
   pdfDlg.close();
   prefs.pdfTable = pdfForm.withTable.checked; prefs.pdfCols = cols; prefs.pdfChart = pdfForm.withChart.checked; prefs.pdfPaper = pdfForm.paper.value; prefs.pdfOrient = pdfForm.orient.value;
   if (state.marks.length) prefs.pdfMarks = pdfForm.showMarks.checked;
+  prefs.pdfToday = pdfForm.showToday.checked; prefs.pdfProgress = pdfForm.showProgress.checked;
   savePrefs();
-  printPDF(a, b, pdfForm.onlyIn.checked, { cols: pdfForm.withTable.checked ? cols : [], marks: pdfForm.showMarks.checked, filters: pdfForm.useFilt.checked && !pdfForm.useFilt.disabled, chart: pdfForm.withChart.checked, paper: pdfForm.paper.value, orient: pdfForm.orient.value });
+  printPDF(a, b, pdfForm.onlyIn.checked, { cols: pdfForm.withTable.checked ? cols : [], marks: pdfForm.showMarks.checked, filters: pdfForm.useFilt.checked && !pdfForm.useFilt.disabled, chart: pdfForm.withChart.checked, paper: pdfForm.paper.value, orient: pdfForm.orient.value, today: pdfForm.showToday.checked, progress: pdfForm.showProgress.checked });
 });
 
 function printPDF(from, to, onlyIn, opts) {
