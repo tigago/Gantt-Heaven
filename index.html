@@ -489,6 +489,7 @@ dialog.xwide{width:min(940px,96vw)}
     <label class="check"><input type="checkbox" name="onlyIn" checked> Mostrar só as tarefas que ocorrem no período</label>
     <label class="check"><input type="checkbox" name="useFilt"> Aplicar os filtros atuais do cronograma <span id="pdfFiltInfo" style="color:var(--muted);font-size:12px"></span></label>
     <label class="check"><input type="checkbox" name="showMarks"> Mostrar períodos destacados <span id="pdfMarksInfo" style="color:var(--muted);font-size:12px"></span></label>
+    <label class="check"><input type="checkbox" name="withChart"> Incluir o cronograma (gráfico) <span style="color:var(--muted);font-size:12px">— desmarcado, imprime só a tabela</span></label>
     <label class="check"><input type="checkbox" name="withTable"> Incluir a tabela de tarefas</label>
     <div id="pdfCols" class="colpick" title="Colunas da tabela"></div>
     <div id="pdfInfo" style="color:var(--muted);font-size:12px"></div>
@@ -1228,7 +1229,7 @@ $('#fileInput').addEventListener('change', async e => { const f = e.target.files
 // Monta uma página de impressão com o diagrama inteiro; o usuário escolhe "Salvar como PDF".
 function buildExportHTML(from, to, onlyIn = true, opts = {}) {
   const cols = TABLE_COLS.filter(c => (opts.cols === undefined ? ALL_TABLE_KEYS : opts.cols || []).includes(c.key));
-  const showMarks = opts.marks !== false;
+  const showMarks = opts.marks !== false, withChart = opts.chart !== false || !cols.length;
   if (from === undefined) { [from, to] = projectSpan(); from -= 1; to += 3; }
   const fdesc = opts.filters ? filterDesc() : '';
   const tasks = state.tasks.filter(t => (!onlyIn || overlaps(t, from, to)) && (!opts.filters || passFilter(t)));
@@ -1243,15 +1244,17 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
   state.tasks = tasks; // só as tarefas exportadas (dependências para tarefas fora do período são omitidas)
   if (!showMarks) state.marks = [];
   noSections = true;
-  try { renderTimeline(); renderChart(); } finally { state.tasks = allTasks; state.marks = allMarks; noSections = false; }
-  const tl = timelineEl.innerHTML, ch = chartEl.innerHTML;
+  let tl = '', ch = '';
+  if (withChart) try { renderTimeline(); renderChart(); tl = timelineEl.innerHTML; ch = chartEl.innerHTML; } finally { state.tasks = allTasks; state.marks = allMarks; noSections = false; }
+  else { state.tasks = allTasks; state.marks = allMarks; noSections = false; }
   ({ range, dayW, selectedId, highlightMember, highlightCategory } = saved);
   render();
 
-  const W = LW + days * dw, H = TOP + HEAD + tasks.length * ROW + 4;
+  const W = LW + (withChart ? days * dw : 0), H = TOP + HEAD + tasks.length * ROW + 4;
   const z = Math.min(1, PW / W, PH / H);
   let page, zoom;
-  if (z >= 0.45) { page = 'A4 landscape'; zoom = z; }
+  if (!withChart) { page = 'A4 landscape'; zoom = Math.min(1, PW / W); } // só a tabela: segue em várias páginas se precisar
+  else if (z >= 0.45) { page = 'A4 landscape'; zoom = z; }
   else { page = `${Math.ceil(W + 76)}px ${Math.ceil(H + 76)}px`; zoom = 1; } // projeto grande: página única do tamanho do diagrama
 
   const strip = !cols.some(c => c.key === 'category');
@@ -1270,7 +1273,8 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
     .ph .meta{color:#6b7385;font-size:12px;display:flex;flex-wrap:wrap;gap:2px 14px;align-items:center;white-space:nowrap}
     .pchip{display:inline-flex;align-items:center;gap:4px;color:#1d2433}
     .pchip .dot{width:10px;height:10px;border-radius:50%}
-    .pg{break-inside:avoid;display:grid;grid-template-columns:${LW ? LW + 'px ' : ''}${days * dw}px;border:1px solid #e4e7ef;border-radius:8px;overflow:hidden}
+    .pg{break-inside:${withChart ? 'avoid' : 'auto'};display:grid;grid-template-columns:${LW ? LW + 'px ' : ''}${withChart ? days * dw + 'px' : ''};border:1px solid #e4e7ef;border-radius:8px;overflow:hidden}
+    .plist .prow{break-inside:avoid}
     .pcorner{height:${HEAD}px;border-bottom:1px solid #e4e7ef;border-right:1px solid #e4e7ef;display:flex;align-items:flex-end}
     .pcorner .prow{height:28px;border:none;color:#6b7385;font-size:10px;font-weight:600;text-transform:uppercase}
     .ptl{height:${HEAD}px;border-bottom:1px solid #e4e7ef;overflow:hidden}
@@ -1292,9 +1296,9 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
       </div>
       <div class="pg">
         ${LW ? `<div class="pcorner"><div class="prow">${headCells}</div></div>` : ''}
-        <div class="ptl">${tl}</div>
+        ${withChart ? `<div class="ptl">${tl}</div>` : ''}
         ${LW ? `<div class="plist">${rows}</div>` : ''}
-        <div class="pchart">${ch}</div>
+        ${withChart ? `<div class="pchart">${ch}</div>` : ''}
       </div>
     </div></body></html>`;
   return html;
@@ -1453,6 +1457,8 @@ function exportPDF() {
   if (!state.tasks.length) { toast('Adicione tarefas antes de exportar'); return; }
   if (!pdfForm.from.value || !pdfForm.to.value) pdfPreset('project'); else updatePdfInfo();
   pdfForm.withTable.checked = prefs.pdfTable;
+  pdfForm.withChart.checked = prefs.pdfChart !== false;
+  syncPdfParts();
   const fdesc = filterDesc();
   pdfForm.useFilt.disabled = !fdesc; pdfForm.useFilt.checked = !!fdesc;
   $('#pdfFiltInfo').textContent = fdesc ? `(${fdesc})` : '(nenhum filtro ativo)';
@@ -1467,7 +1473,15 @@ function exportPDF() {
 pdfForm.from.addEventListener('input', updatePdfInfo);
 pdfForm.useFilt.addEventListener('change', updatePdfInfo);
 pdfForm.onlyIn.addEventListener('change', updatePdfInfo);
-pdfForm.withTable.addEventListener('change', () => $('#pdfCols').classList.toggle('off', !pdfForm.withTable.checked));
+// sem o gráfico, a tabela é obrigatória (é o que será impresso)
+function syncPdfParts() {
+  if (!pdfForm.withChart.checked) pdfForm.withTable.checked = true;
+  pdfForm.withTable.disabled = !pdfForm.withChart.checked;
+  pdfForm.showMarks.closest('label').style.opacity = pdfForm.withChart.checked ? '' : '.5';
+  $('#pdfCols').classList.toggle('off', !pdfForm.withTable.checked);
+}
+pdfForm.withTable.addEventListener('change', syncPdfParts);
+pdfForm.withChart.addEventListener('change', syncPdfParts);
 pdfForm.to.addEventListener('input', updatePdfInfo);
 $('#pdfPresets').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (b) pdfPreset(b.dataset.p); });
 $('#pdfCancel').onclick = () => pdfDlg.close();
@@ -1475,12 +1489,13 @@ pdfForm.addEventListener('submit', e => {
   e.preventDefault();
   const a = toIdx(pdfForm.from.value), b = toIdx(pdfForm.to.value);
   if (!(b >= a)) return;
-  pdfDlg.close();
   const cols = pickedCols($('#pdfCols'));
-  prefs.pdfTable = pdfForm.withTable.checked; prefs.pdfCols = cols;
+  if (!pdfForm.withChart.checked && !cols.length) { toast('Escolha ao menos uma coluna da tabela'); return; }
+  pdfDlg.close();
+  prefs.pdfTable = pdfForm.withTable.checked; prefs.pdfCols = cols; prefs.pdfChart = pdfForm.withChart.checked;
   if (state.marks.length) prefs.pdfMarks = pdfForm.showMarks.checked;
   savePrefs();
-  printPDF(a, b, pdfForm.onlyIn.checked, { cols: pdfForm.withTable.checked ? cols : [], marks: pdfForm.showMarks.checked, filters: pdfForm.useFilt.checked && !pdfForm.useFilt.disabled });
+  printPDF(a, b, pdfForm.onlyIn.checked, { cols: pdfForm.withTable.checked ? cols : [], marks: pdfForm.showMarks.checked, filters: pdfForm.useFilt.checked && !pdfForm.useFilt.disabled, chart: pdfForm.withChart.checked });
 });
 
 function printPDF(from, to, onlyIn, opts) {
