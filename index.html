@@ -33,7 +33,9 @@ input,textarea,select{font:inherit;color:inherit}
 #projName:hover,#projName:focus{border-color:var(--line);background:#fafbfd;outline:none}
 .sep{width:1px;height:24px;background:var(--line);margin:0 2px}
 .zoom{display:flex;align-items:center;gap:6px;color:var(--muted)}
-#colMode{border:1px solid var(--line);border-radius:7px;padding:5px 6px;background:#fff;font:inherit;color:var(--text);cursor:pointer}
+#colMode,.tfilt{border:1px solid var(--line);border-radius:7px;padding:5px 6px;background:#fff;font:inherit;color:var(--text);cursor:pointer}
+.tfilt{max-width:190px}
+.tfilt.on{border-color:var(--accent);background:#eef2ff;color:var(--accent);font-weight:600}
 #timeline{cursor:pointer}
 #legend{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-left:auto}
 .chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px 3px 4px;border-radius:999px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:12px;user-select:none}
@@ -54,7 +56,6 @@ input,textarea,select{font:inherit;color:inherit}
 #corner .cols{height:100%;color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding-top:22px}
 .row{height:var(--row);border-bottom:1px solid #f0f1f5}
 .row.sel{background:#eef2ff}
-.row.dim{opacity:.35}
 .row .handle{cursor:grab;color:#b4bacb;text-align:center;font-size:14px;user-select:none}
 .row .handle:hover{color:var(--text)}
 .row select.catsel{width:100%;min-width:0;font:inherit;font-size:11.5px;border:1.5px dashed #c9cedb;border-radius:999px;padding:2px 4px;background:#fff;color:var(--muted);cursor:pointer;text-overflow:ellipsis;outline:none}
@@ -89,7 +90,6 @@ svg text{font-family:inherit}
 .bar:hover .body{filter:brightness(1.06)}
 .bar .selring{display:none;fill:none;stroke:#1d2433;stroke-width:1.5;opacity:.55;pointer-events:none}
 .bar.sel .selring{display:block}
-.bar.dim{opacity:.22}
 .bar .handle{fill:transparent;cursor:ew-resize}
 .bar .grip{opacity:0;pointer-events:none;transition:opacity .1s}
 .bar:hover .grip,.bar.sel .grip{opacity:.85}
@@ -378,6 +378,11 @@ dialog.xwide{width:min(940px,96vw)}
   <label class="zoom" title="Agrupar e destacar colunas">▦ Colunas <select id="colMode"><option value="day">Dias</option><option value="week">Semanas</option><option value="month">Meses</option></select></label>
   <button id="btnClearMarks" title="Remover todos os destaques de colunas" style="display:none">✖ Destaques</button>
   <div class="zoom">🔍 <input type="range" id="zoom" min="6" max="64" value="28" title="Zoom (Ctrl + roda do mouse)"></div>
+  <div class="sep"></div>
+  <select id="fMember" class="tfilt" title="Filtrar tarefas por membro"></select>
+  <select id="fCategory" class="tfilt" title="Filtrar tarefas por categoria"></select>
+  <button id="btnClearFilt" title="Remover os filtros" style="display:none">✖ Filtros</button>
+  <span id="filtInfo" class="muted" style="font-size:12px"></span>
   <div id="legend"></div>
 </div>
 
@@ -754,7 +759,7 @@ function finish(prev) {
 }
 function undo() { if (!undoStack.length) return; redoStack.push(snap()); state = JSON.parse(undoStack.pop()); fixSelection(); dirty = true; persist(); render(); }
 function redo() { if (!redoStack.length) return; undoStack.push(snap()); state = JSON.parse(redoStack.pop()); fixSelection(); dirty = true; persist(); render(); }
-function fixSelection() { if (selectedId && !task(selectedId)) selectedId = null; if (highlightMember && !member(highlightMember)) highlightMember = null; if (highlightCategory && !category(highlightCategory)) highlightCategory = null; }
+function fixSelection() { if (selectedId && !task(selectedId)) selectedId = null; if (highlightMember && highlightMember !== '__none' && !member(highlightMember)) highlightMember = null; if (highlightCategory && highlightCategory !== '__none' && !category(highlightCategory)) highlightCategory = null; }
 
 // ---------- Renderização ----------
 const scroller = $('#scroller'), listEl = $('#list'), chartEl = $('#chart'), timelineEl = $('#timeline');
@@ -770,7 +775,10 @@ function computeRange() {
   return { start, days };
 }
 
-const dim = t => (highlightMember && !t.members.includes(highlightMember)) || (highlightCategory && t.category !== highlightCategory);
+// filtros do cronograma (membro e categoria; '__none' = sem membro / sem categoria): as tarefas que não atendem ficam ocultas
+const passFilter = t => (!highlightMember || (highlightMember === '__none' ? !t.members.length : t.members.includes(highlightMember)))
+  && (!highlightCategory || (highlightCategory === '__none' ? !t.category : t.category === highlightCategory));
+const visTasks = () => state.tasks.filter(passFilter);
 
 function avatarsHTML(ids, max = 3) {
   const ms = ids.map(member).filter(Boolean);
@@ -795,9 +803,10 @@ function scheduleRender() { if (rafPending) return; rafPending = true; requestAn
 
 function renderList() {
   let h = '';
-  state.tasks.forEach((t, i) => {
-    const cat = category(t.category);
-    h += `<div class="row cols${t.id === selectedId ? ' sel' : ''}${dim(t) ? ' dim' : ''}" data-id="${t.id}">
+  const num = new Map(state.tasks.map((t, i) => [t.id, i + 1]));
+  visTasks().forEach(t => {
+    const cat = category(t.category), i = num.get(t.id) - 1;
+    h += `<div class="row cols${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}">
       <span class="handle" draggable="true" title="Arraste para reordenar">⠿</span>
       <select class="catsel${cat ? ' has' : ''}" title="${cat ? 'Categoria: ' + esc(cat.name) : 'Sem categoria'}"${cat ? ` style="border-color:${cat.color};background-color:${cat.color}1f"` : ''}>
         <option value="">—</option>${state.categories.map(c => `<option value="${c.id}"${c.id === t.category ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="__new">+ Nova…</option>
@@ -954,34 +963,34 @@ function linkPath(p, t, ip, it) {
 }
 
 function renderChart() {
-  const n = state.tasks.length, W = range.days * dayW, H = (n + 1) * ROW, today = todayIdx();
+  const tasks = visTasks(), n = tasks.length, W = range.days * dayW, H = (n + 1) * ROW, today = todayIdx();
   const defs = [];
   let bg = '', links = '', bars = '';
   // faixas das linhas (destaque da linha selecionada)
-  state.tasks.forEach((t, i) => { bg += `<rect class="band${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}" x="0" y="${i * ROW}" width="${W}" height="${ROW}"/>`; });
+  tasks.forEach((t, i) => { bg += `<rect class="band${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}" x="0" y="${i * ROW}" width="${W}" height="${ROW}"/>`; });
   // colunas (dias / semanas / meses) e períodos destacados
   bg += columnsBackground(H);
   const tx = (today - range.start) * dayW + dayW / 2;
   const todayLine = `<line x1="${tx}" x2="${tx}" y1="0" y2="${H}" stroke="${TODAY_COLOR}" stroke-width="1.5" pointer-events="none"/>`;
 
-  const index = new Map(state.tasks.map((t, i) => [t.id, i]));
-  state.tasks.forEach((t, it) => {
+  const index = new Map(tasks.map((t, i) => [t.id, i]));
+  tasks.forEach((t, it) => {
     for (const d of t.deps) {
-      const p = task(d); if (!p) continue;
+      const p = task(d); if (!p || !index.has(d)) continue; // dependência com tarefa oculta pelo filtro não é desenhada
       const dpath = linkPath(p, t, index.get(d), it);
       links += `<path class="link-hit" d="${dpath}" data-from="${d}" data-to="${t.id}"><title>${esc(p.name)} → ${esc(t.name)} (clique para remover)</title></path><path class="link" d="${dpath}" marker-end="url(#arr)"/>`;
     }
   });
 
   const H_BAR = 24, R = H_BAR / 2, AV = 20, AV_STEP = 13;
-  state.tasks.forEach((t, i) => {
+  tasks.forEach((t, i) => {
     const x = (t.start - range.start) * dayW, w = t.duration * dayW, y = i * ROW + (ROW - H_BAR) / 2, cy = y + R;
     const rx = Math.min(R, w / 2);
     const ms = t.members.map(member).filter(Boolean);
     const color = ms.length ? ms[0].color : '#9aa3b5';
     const fg = textOn(color);
     const hw = clamp(w / 4, 4, 12);
-    let b = `<g class="bar${t.id === selectedId ? ' sel' : ''}${dim(t) ? ' dim' : ''}" data-id="${t.id}">`;
+    let b = `<g class="bar${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}">`;
     const cat = category(t.category);
     b += `<rect class="selring" x="${x - 4}" y="${y - 4}" width="${w + 8}" height="${H_BAR + 8}" rx="${rx + 4}"/>`;
     b += cat
@@ -1022,14 +1031,24 @@ function renderChart() {
     <line id="tempLink" x1="0" y1="0" x2="0" y2="0" style="display:none"/></svg>`;
 }
 
+function renderFilters() {
+  const fm = $('#fMember'), fc = $('#fCategory');
+  fm.innerHTML = `<option value="">Todos os membros</option>${state.members.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}<option value="__none">Sem membro</option>`;
+  fc.innerHTML = `<option value="">Todas as categorias</option>${state.categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}<option value="__none">Sem categoria</option>`;
+  fm.value = highlightMember || ''; fc.value = highlightCategory || '';
+  fm.classList.toggle('on', !!highlightMember); fc.classList.toggle('on', !!highlightCategory);
+  const on = !!(highlightMember || highlightCategory);
+  $('#btnClearFilt').style.display = on ? '' : 'none';
+  $('#filtInfo').textContent = on ? `${visTasks().length} de ${state.tasks.length} tarefa(s)` : '';
+}
 function renderLegend() {
-  const any = highlightMember || highlightCategory;
+  renderFilters();
   $('#legend').innerHTML = state.members.map(m => {
-    const cls = highlightMember === m.id ? ' on' : (any ? ' off' : '');
-    return `<span class="chip${cls}" data-mid="${m.id}" title="Clique para destacar as tarefas de ${esc(m.name)}"><span class="dot" style="background:${m.color};color:${textOn(m.color)}">${esc(initials(m.name))}</span>${esc(m.name)}</span>`;
+    const cls = highlightMember === m.id ? ' on' : (highlightMember ? ' off' : '');
+    return `<span class="chip${cls}" data-mid="${m.id}" title="Clique para filtrar as tarefas de ${esc(m.name)}"><span class="dot" style="background:${m.color};color:${textOn(m.color)}">${esc(initials(m.name))}</span>${esc(m.name)}</span>`;
   }).join('') + (state.categories.length && state.members.length ? '<span class="sep"></span>' : '') + state.categories.map(c => {
-    const cls = highlightCategory === c.id ? ' on' : (any ? ' off' : '');
-    return `<span class="chip cat${cls}" data-cid="${c.id}" title="Clique para destacar a categoria ${esc(c.name)}"><span class="ring" style="border-color:${c.color}"></span>${esc(c.name)}</span>`;
+    const cls = highlightCategory === c.id ? ' on' : (highlightCategory ? ' off' : '');
+    return `<span class="chip cat${cls}" data-cid="${c.id}" title="Clique para filtrar a categoria ${esc(c.name)}"><span class="ring" style="border-color:${c.color}"></span>${esc(c.name)}</span>`;
   }).join('');
 }
 
@@ -1043,6 +1062,8 @@ function setSelected(id) {
 function addTask() {
   const sel = selectedId && task(selectedId);
   const t = { id: uid(), name: `Nova tarefa ${state.tasks.length + 1}`, start: sel ? sel.start + sel.duration : todayIdx(), duration: 5, progress: 0, members: [], deps: [], notes: '' };
+  if (highlightMember && highlightMember !== '__none') t.members = [highlightMember]; // com filtro ativo, a nova tarefa já atende ao filtro
+  if (highlightCategory && highlightCategory !== '__none') t.category = highlightCategory;
   mutate(() => {
     if (sel) state.tasks.splice(state.tasks.indexOf(sel) + 1, 0, t); else state.tasks.push(t);
   });
@@ -1744,10 +1765,13 @@ $('#btnHelp').onclick = () => $('#helpDlg').showModal();
 $('#helpClose').onclick = () => $('#helpDlg').close();
 $('#legend').addEventListener('click', e => {
   const c = e.target.closest('.chip'); if (!c) return;
-  if (c.dataset.mid) { highlightMember = highlightMember === c.dataset.mid ? null : c.dataset.mid; highlightCategory = null; }
-  else { highlightCategory = highlightCategory === c.dataset.cid ? null : c.dataset.cid; highlightMember = null; }
+  if (c.dataset.mid) highlightMember = highlightMember === c.dataset.mid ? null : c.dataset.mid;
+  else highlightCategory = highlightCategory === c.dataset.cid ? null : c.dataset.cid;
   render();
 });
+$('#fMember').addEventListener('change', e => { highlightMember = e.target.value || null; render(); });
+$('#fCategory').addEventListener('change', e => { highlightCategory = e.target.value || null; render(); });
+$('#btnClearFilt').onclick = () => { highlightMember = null; highlightCategory = null; render(); };
 
 document.addEventListener('keydown', e => {
   const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
