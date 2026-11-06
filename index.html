@@ -53,7 +53,8 @@ input,textarea,select{font:inherit;color:inherit}
 #chart{position:relative}
 .cols{display:grid;grid-template-columns:22px 100px 26px 1fr 64px 64px 48px 76px;align-items:center;gap:0 4px;padding-right:8px}
 #corner .cols{height:100%;color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding-top:22px}
-.row{height:var(--row);border-bottom:1px solid #f0f1f5}
+.row{height:var(--row);border-bottom:1px solid #d5dae5}
+.row:has(+ .row.sec){border-bottom:1px dashed #e6e9f0}
 .row.sel{background:#eef2ff}
 .row .handle{cursor:grab;color:#b4bacb;text-align:center;font-size:14px;user-select:none}
 .row .handle:hover{color:var(--text)}
@@ -65,6 +66,7 @@ input,textarea,select{font:inherit;color:inherit}
 .row .stog{flex:none;border:1px solid var(--line);background:#fff;border-radius:999px;padding:0 6px;font-size:10.5px;color:var(--muted);line-height:17px;cursor:pointer}
 .row .stog:hover{color:var(--text);border-color:#c9cedb}
 .row.sec{background:#fbfbfd}
+.row.tint{background:var(--catbg)}
 .row.sec .num{text-align:center;padding:0}
 .row.sec .secchk{margin:0;cursor:pointer}
 .row.sec .secname{font-size:12px;color:#3c4458;padding-left:22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -119,6 +121,9 @@ svg text{font-family:inherit}
 .bar .lbl.out{fill:#3a4256;font-weight:500}
 .bar .bav text{font-size:8.5px;font-weight:700;pointer-events:none}
 .band{fill:transparent}
+.band.tint{fill:var(--cf)}
+.rowline{stroke:#d5dae5;stroke-width:1;pointer-events:none}
+.rowline.inner{stroke:#e6e9f0;stroke-dasharray:3 3}
 .band.sel{fill:#e3edfb}
 .linking .bar:hover .body{stroke:var(--accent);stroke-width:2.5;stroke-dasharray:5 3}
 .row:not(.add):hover{background:#f7f8fc}
@@ -849,7 +854,8 @@ function renderList() {
   rowModel().forEach(({ t, s: sec }) => {
     if (sec) { // linha de seção: marcar como concluída, nome e período
       const a = t.start + sec.off, b = a + sec.dur - 1;
-      h += `<div class="row cols sec${sec.done ? ' done' : ''}" data-tid="${t.id}" data-sec="${sec.id}">
+      const sc = category(t.category);
+      h += `<div class="row cols sec${sec.done ? ' done' : ''}${sc ? ' tint' : ''}" data-tid="${t.id}" data-sec="${sec.id}"${sc ? ` style="--catbg:${sc.color}14"` : ''}>
         <span></span><span></span>
         <span class="num"><input type="checkbox" class="secchk" ${sec.done ? 'checked' : ''} title="Marcar a seção como concluída"></span>
         <span class="secname" title="${esc(sec.name)} — duplo clique para editar as seções">${esc(sec.name)}</span>
@@ -860,7 +866,7 @@ function renderList() {
     const cat = category(t.category), i = num.get(t.id) - 1;
     const ns = t.sections ? t.sections.length : 0;
     const tog = ns ? `<button class="stog" data-tog="${t.id}" title="${secClosed.has(t.id) ? 'Mostrar' : 'Ocultar'} as seções">${secClosed.has(t.id) ? '▸' : '▾'} ${t.sections.filter(x => x.done).length}/${ns}</button>` : '';
-    h += `<div class="row cols${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}">
+    h += `<div class="row cols${cat ? ' tint' : ''}${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}"${cat ? ` style="--catbg:${cat.color}26"` : ''}>
       <span class="handle" draggable="true" title="Arraste para reordenar">⠿</span>
       <select class="catsel${cat ? ' has' : ''}" title="${cat ? 'Categoria: ' + esc(cat.name) : 'Sem categoria'}"${cat ? ` style="border-color:${cat.color};background-color:${cat.color}1f"` : ''}>
         <option value="">—</option>${state.categories.map(c => `<option value="${c.id}"${c.id === t.category ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="__new">+ Nova…</option>
@@ -1021,9 +1027,17 @@ function renderChart() {
   const defs = [];
   let bg = '', links = '', bars = '';
   // faixas das linhas (destaque da linha selecionada)
-  rows.forEach(({ t, s: sec }, i) => { bg += `<rect class="band${sec ? ' secband' : ''}${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}" x="0" y="${i * ROW}" width="${W}" height="${ROW}"/>`; });
+  rows.forEach(({ t, s: sec }, i) => {
+    const cat = category(t.category); // cor da categoria como fundo da linha (mais clara nas seções)
+    bg += `<rect class="band${sec ? ' secband' : ''}${cat ? ' tint' : ''}${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}" x="0" y="${i * ROW}" width="${W}" height="${ROW}"${cat ? ` style="--cf:${cat.color}${sec ? '14' : '26'}"` : ''}/>`;
+  });
   // colunas (dias / semanas / meses) e períodos destacados
   bg += columnsBackground(H);
+  // divisões entre as linhas (por cima das colunas; mais fraca entre seções da mesma tarefa)
+  rows.forEach(({ s: sec }, i) => {
+    const next = rows[i + 1], inner = next && next.s; // a linha seguinte é seção: divisão interna
+    bg += `<line class="rowline${inner ? ' inner' : ''}" x1="0" x2="${W}" y1="${(i + 1) * ROW - .5}" y2="${(i + 1) * ROW - .5}"/>`;
+  });
   const tx = (today - range.start) * dayW + dayW / 2;
   const todayLine = `<line x1="${tx}" x2="${tx}" y1="0" y2="${H}" stroke="${TODAY_COLOR}" stroke-width="1.5" pointer-events="none"/>`;
 
@@ -1060,10 +1074,8 @@ function renderChart() {
     let b = `<g class="bar${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}">`;
     const cat = category(t.category);
     b += `<rect class="selring" x="${x - 4}" y="${y - 4}" width="${w + 8}" height="${H_BAR + 8}" rx="${rx + 4}"/>`;
-    b += cat
-      ? `<rect class="body" x="${x + 1.5}" y="${y + 1.5}" width="${Math.max(w - 3, 1)}" height="${H_BAR - 3}" rx="${Math.max(rx - 1.5, 0)}" fill="${color}" stroke="${cat.color}" stroke-width="3"/>`
-        + `<rect x="${x + 3.5}" y="${y + 3.5}" width="${Math.max(w - 7, 0)}" height="${H_BAR - 7}" rx="${Math.max(rx - 3.5, 0)}" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="1" pointer-events="none"/>`
-      : `<rect class="body" x="${x}" y="${y}" width="${w}" height="${H_BAR}" rx="${rx}" fill="${color}"/>`;
+    // a categoria aparece como fundo da linha (faixa), não como borda da barra
+    b += `<rect class="body" x="${x}" y="${y}" width="${w}" height="${H_BAR}" rx="${rx}" fill="${color}"${cat ? ' stroke="rgba(0,0,0,.12)" stroke-width="1"' : ''}/>`;
     if (t.progress > 0) {
       defs.push(`<clipPath id="c_${t.id}"><rect x="${x}" y="${y}" width="${w}" height="${H_BAR}" rx="${rx}"/></clipPath>`);
       b += `<rect x="${x}" y="${y}" width="${w * t.progress / 100}" height="${H_BAR}" fill="rgba(0,0,0,.18)" clip-path="url(#c_${t.id})" pointer-events="none"/>`;
