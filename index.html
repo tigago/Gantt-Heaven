@@ -504,6 +504,7 @@ dialog.xwide{width:min(940px,96vw)}
     <label class="check"><input type="checkbox" name="showMarks"> Mostrar períodos destacados <span id="pdfMarksInfo" style="color:var(--muted);font-size:12px"></span></label>
     <label class="check"><input type="checkbox" name="showToday"> Mostrar a linha de "hoje"</label>
     <label class="check"><input type="checkbox" name="showProgress"> Mostrar o progresso (sombra nas barras e ✓ das seções concluídas)</label>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center"><span class="lbl" style="margin:0">Legenda</span><label class="check"><input type="checkbox" name="legM"> Incluir membros</label><label class="check"><input type="checkbox" name="legC"> Incluir categorias</label></div>
     <label class="check"><input type="checkbox" name="withSecs"> Incluir as seções das tarefas <span style="color:var(--muted);font-size:12px">(as que estão visíveis no cronograma)</span></label>
     <div class="grid2">
       <label>Tamanho do papel<select name="paper">
@@ -1329,7 +1330,8 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
   const paper = opts.paper || 'auto', orient = opts.orient === 'portrait' ? 'portrait' : 'landscape';
   const MM = { A2: [594, 420], A3: [420, 297], A4: [297, 210], A5: [210, 148], Letter: [279.4, 215.9], Legal: [355.6, 215.9] }[paper === 'auto' || paper === 'fit' ? 'A4' : paper];
   const pxmm = 96 / 25.4, [mw, mh] = orient === 'portrait' ? [MM[1], MM[0]] : MM;
-  const LW = cols.length ? cols.reduce((a, c) => a + c.w, 0) + 4 * (cols.length - 1) + 12 : 0, TOP = 70;
+  const LW = cols.length ? cols.reduce((a, c) => a + c.w, 0) + 4 * (cols.length - 1) + 12 : 0;
+  let TOP = 70; // altura do cabeçalho; recalculada abaixo conforme as linhas da legenda
   const PW = Math.floor((mw - 20) * pxmm), PH = Math.floor((mh - 20) * pxmm) - 18; // área útil (margem de 10 mm); A4 paisagem ≈ 1047×700 px
   const pageSize = `${paper === 'auto' || paper === 'fit' ? 'A4' : paper} ${orient}`;
   const dw = clamp(Math.floor((PW - LW) / days), 4, 36);
@@ -1348,7 +1350,21 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
   ({ range, dayW, selectedId, highlightMember, highlightCategory } = saved);
   render();
 
-  const W = LW + (withChart ? days * dw : 0), H = TOP + HEAD + rowList.length * ROW + 4;
+  const W = LW + (withChart ? days * dw : 0);
+  // legenda: só os membros e categorias que aparecem no que foi exportado, em linhas "Membros:" e "Categorias:"
+  const usedM = new Set(rowList.flatMap(r => r.s ? [...(r.s.members || []), ...r.t.members] : r.t.members)), usedC = new Set(rowList.map(r => r.t.category).filter(Boolean));
+  const legM = opts.legendMembers === false ? [] : state.members.filter(m => usedM.has(m.id));
+  const legC = opts.legendCategories === false ? [] : state.categories.filter(c => usedC.has(c.id));
+  const legLines = (label, names) => { // quantas linhas o grupo ocupa na largura da folha (para não cortar)
+    if (!names.length) return 0;
+    measureCtx.font = '12px "Segoe UI", system-ui, sans-serif';
+    let lines = 1, x = measureCtx.measureText(label).width + 10;
+    for (const n of names) { const w = measureCtx.measureText(n).width + 30; if (x + w > W && x > 0) { lines++; x = 0; } x += w; }
+    return lines;
+  };
+  const nLeg = legLines('Membros:', legM.map(m => m.name)) + legLines('Categorias:', legC.map(c => c.name));
+  TOP = 30 + 20 + nLeg * 19 + 8;
+  const H = TOP + HEAD + rowList.length * ROW + 4;
   const z = Math.min(1, PW / W, PH / H);
   let page, zoom;
   if (!withChart && paper !== 'fit') { page = pageSize; zoom = Math.min(1, PW / W); } // só a tabela: segue em várias páginas se precisar
@@ -1364,15 +1380,17 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
     return `<div class="prow"${c ? ` style="background:${c.color}45"` : ''}>${cols.map(k => pdfCell(k.key, t, allTasks.indexOf(t), strip)).join('')}</div>`;
   }).join('');
   const headCells = cols.map(c => `<span class="${c.key === 'duration' ? 'pr' : ''}">${esc(c.label)}</span>`).join('');
-  const legend = state.members.map(m => `<span class="pchip"><span class="dot" style="background:${m.color}"></span>${esc(m.name)}</span>`).join('')
-    + state.categories.map(c => `<span class="pchip"><span class="dot" style="background:${c.color}55;border-radius:3px;width:12px;height:12px"></span>${esc(c.name)}</span>`).join('');
+  const legend = (legM.length ? `<div class="leg"><b>Membros:</b>${legM.map(m => `<span class="pchip"><span class="dot" style="background:${m.color}"></span>${esc(m.name)}</span>`).join('')}</div>` : '')
+    + (legC.length ? `<div class="leg"><b>Categorias:</b>${legC.map(c => `<span class="pchip"><span class="dot" style="background:${c.color}55;border:1px solid ${c.color};border-radius:3px;width:12px;height:12px;box-sizing:border-box"></span>${esc(c.name)}</span>`).join('')}</div>` : '');
   const now = new Date();
   const css = document.querySelector('style').textContent + `
     @page{size:${page};margin:10mm}
     html,body{height:auto;overflow:visible;display:block;background:#fff}
     body{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .sheet{zoom:${zoom};width:${W}px}
-    .ph{height:${TOP}px;display:flex;flex-direction:column;justify-content:center;gap:4px;overflow:hidden}
+    .ph{min-height:${TOP}px;display:flex;flex-direction:column;justify-content:center;gap:4px;padding-bottom:6px}
+    .ph .leg{display:flex;flex-wrap:wrap;gap:3px 14px;align-items:center;font-size:12px;color:#1d2433}
+    .ph .leg b{color:#6b7385;font-weight:600;margin-right:-4px}
     .ph h1{margin:0;font-size:20px}
     .ph .meta{color:#6b7385;font-size:12px;display:flex;flex-wrap:wrap;gap:2px 14px;align-items:center;white-space:nowrap}
     .pchip{display:inline-flex;align-items:center;gap:4px;color:#1d2433}
@@ -1401,7 +1419,7 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(state.name)}</title><style>${css}</style></head><body>
     <div class="sheet">
       <div class="ph"><div style="display:flex;align-items:baseline;gap:12px"><h1>${esc(state.name)}</h1><span style="margin-left:auto;color:#6b7385;font-size:12px">Gerado em ${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span></div>
-        <div class="meta"><span>${fmtLong(from)} → ${fmtLong(to)} · ${plural(days)} · ${tasks.length} tarefa${tasks.length === 1 ? '' : 's'}${fdesc ? ` · filtro — ${esc(fdesc)}` : ''}</span>${legend}</div>
+        <div class="meta"><span>${fmtLong(from)} → ${fmtLong(to)} · ${plural(days)} · ${tasks.length} tarefa${tasks.length === 1 ? '' : 's'}${fdesc ? ` · filtro — ${esc(fdesc)}` : ''}</span></div>${legend}
       </div>
       <div class="pg">
         ${LW ? `<div class="pcorner"><div class="prow">${headCells}</div></div>` : ''}
@@ -1588,6 +1606,7 @@ function exportPDF() {
   updatePdfInfo();
   pdfForm.showMarks.checked = prefs.pdfMarks && state.marks.length > 0;
   pdfForm.showToday.checked = prefs.pdfToday !== false; pdfForm.showProgress.checked = prefs.pdfProgress !== false; pdfForm.withSecs.checked = prefs.pdfSecs !== false;
+  pdfForm.legM.checked = prefs.pdfLegM !== false; pdfForm.legC.checked = prefs.pdfLegC !== false;
   pdfForm.showMarks.disabled = !state.marks.length;
   $('#pdfMarksInfo').textContent = state.marks.length ? `(${state.marks.length})` : '(nenhum no projeto)';
   renderColPicker($('#pdfCols'), TABLE_COLS, prefs.pdfCols);
@@ -1620,9 +1639,9 @@ pdfForm.addEventListener('submit', e => {
   pdfDlg.close();
   prefs.pdfTable = pdfForm.withTable.checked; prefs.pdfCols = cols; prefs.pdfChart = pdfForm.withChart.checked; prefs.pdfPaper = pdfForm.paper.value; prefs.pdfOrient = pdfForm.orient.value;
   if (state.marks.length) prefs.pdfMarks = pdfForm.showMarks.checked;
-  prefs.pdfToday = pdfForm.showToday.checked; prefs.pdfProgress = pdfForm.showProgress.checked; prefs.pdfSecs = pdfForm.withSecs.checked;
+  prefs.pdfToday = pdfForm.showToday.checked; prefs.pdfProgress = pdfForm.showProgress.checked; prefs.pdfSecs = pdfForm.withSecs.checked; prefs.pdfLegM = pdfForm.legM.checked; prefs.pdfLegC = pdfForm.legC.checked;
   savePrefs();
-  printPDF(a, b, pdfForm.onlyIn.checked, { cols: pdfForm.withTable.checked ? cols : [], marks: pdfForm.showMarks.checked, filters: pdfForm.useFilt.checked && !pdfForm.useFilt.disabled, chart: pdfForm.withChart.checked, paper: pdfForm.paper.value, orient: pdfForm.orient.value, today: pdfForm.showToday.checked, progress: pdfForm.showProgress.checked, sections: pdfForm.withSecs.checked });
+  printPDF(a, b, pdfForm.onlyIn.checked, { cols: pdfForm.withTable.checked ? cols : [], marks: pdfForm.showMarks.checked, filters: pdfForm.useFilt.checked && !pdfForm.useFilt.disabled, chart: pdfForm.withChart.checked, paper: pdfForm.paper.value, orient: pdfForm.orient.value, today: pdfForm.showToday.checked, progress: pdfForm.showProgress.checked, sections: pdfForm.withSecs.checked, legendMembers: pdfForm.legM.checked, legendCategories: pdfForm.legC.checked });
 });
 
 function printPDF(from, to, onlyIn, opts) {
