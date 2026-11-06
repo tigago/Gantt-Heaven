@@ -455,7 +455,7 @@ dialog.xwide{width:min(940px,96vw)}
       <label>Duração (dias)<input type="number" name="duration" min="1" required></label>
     </div>
     <label>Progresso: <span id="progVal">0%</span><input type="range" name="progress" min="0" max="100" step="5"></label>
-    <div><span class="lbl">Seções <label class="check secshow" title="Mostrar as seções desta tarefa no cronograma"><input type="checkbox" name="showSecs"> mostrar no cronograma</label> <span class="muted" style="font-weight:400">— etapas tickáveis dentro do período da tarefa (com seções, o progresso é calculado por elas, proporcional à duração de cada uma)</span></span>
+    <div><span class="lbl">Seções <label class="check secshow" title="Mostrar as seções desta tarefa no cronograma"><input type="checkbox" name="showSecs"> mostrar no cronograma</label> <span class="muted" style="font-weight:400">— etapas tickáveis dentro do período da tarefa (o progresso da tarefa continua manual)</span></span>
       <div id="dlgSecs" class="secs"></div>
       <button type="button" id="dlgAddSec" class="secadd">+ Seção</button></div>
     <label>Categoria<select name="category" id="dlgCategory"></select></label>
@@ -819,7 +819,6 @@ function schedule() {
   };
   state.tasks.forEach(visitT);
   m.forEach(visitS);
-  state.tasks.forEach(sectionProgress);
 }
 // mantém as seções dentro do período da tarefa
 function fitSections(t) {
@@ -829,12 +828,6 @@ function fitSections(t) {
     x.off = clamp(x.off, 0, t.duration - 1);
     x.dur = clamp(x.dur, 1, t.duration - x.off);
   }
-}
-// progresso da tarefa pelas seções concluídas, proporcional à duração de cada seção
-function sectionProgress(t) {
-  if (!t.sections || !t.sections.length) return;
-  const tot = t.sections.reduce((a, x) => a + x.dur, 0), ok = t.sections.filter(x => x.done).reduce((a, x) => a + x.dur, 0);
-  t.progress = tot ? Math.round(ok / tot * 100) : 0;
 }
 // verdadeiro se "a" depende (direta ou indiretamente) de "b"; uma seção depende implicitamente da sua tarefa
 function dependsOn(aId, bId, m = secMap(), seen = new Set()) {
@@ -1915,9 +1908,9 @@ function renderDlgSecs() {
     <input type="date" data-f="b" value="${fromIdx(x.b)}" min="${mn}" max="${mx}" title="Fim da seção">
     <button type="button" data-f="del" title="Remover a seção">✕</button>
     <div class="secmem">${dlgMembers.size ? state.members.filter(m => dlgMembers.has(m.id)).map(m => `<span class="chip sm${x.members.includes(m.id) ? ' on' : ''}" data-smid="${m.id}" title="${x.members.includes(m.id) ? 'Remover' : 'Adicionar'} ${esc(m.name)} nesta seção"><span class="dot" style="background:${m.color};color:${textOn(m.color)}">${esc(initials(m.name))}</span>${esc(m.name)}</span>`).join('') : '<span class="muted">Escolha os membros da tarefa para atribuí-los às seções.</span>'}</div></div>`).join('') || '<div class="empty" style="font-size:12px;color:var(--muted)">Nenhuma seção.</div>';
-  form.progress.disabled = dlgSecs.length > 0;
-  if (dlgSecs.length) { const tot = dlgSecs.reduce((a, x) => a + x.b - x.a + 1, 0), ok = dlgSecs.filter(x => x.done).reduce((a, x) => a + x.b - x.a + 1, 0), v = tot ? Math.round(ok / tot * 100) : 0; form.progress.value = v; $('#progVal').textContent = v + '% (pelas seções, proporcional à duração)'; }
-  else $('#progVal').textContent = form.progress.value + '%';
+  // o progresso da tarefa é sempre manual (as seções não o alteram)
+  form.progress.disabled = false;
+  $('#progVal').textContent = form.progress.value + '%';
 }
 $('#dlgSecs').addEventListener('input', e => {
   const r = e.target.closest('.secrow'); if (!r) return; const x = dlgSecs[+r.dataset.k], f = e.target.dataset.f;
