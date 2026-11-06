@@ -635,13 +635,18 @@ dialog.xwide{width:min(940px,96vw)}
 <dialog id="feDlg">
   <form class="dlg" id="feForm" method="dialog">
     <h2 id="feTitle">Exportar</h2>
-    <div class="seg" id="feFmt"><button type="button" data-v="pdf">🖨️ PDF</button><button type="button" data-v="csv">📑 CSV</button></div>
+    <div class="seg" id="feFmt"><button type="button" data-v="pdf">🖨️ PDF</button><button type="button" data-v="csv">📑 CSV</button><button type="button" data-v="zip" id="feFmtZip" title="Baixar as notas, comprovantes e contratos anexados">🗂️ ZIP dos anexos</button></div>
     <div id="fePeriodM" class="grid2"><label>Do mês<input type="month" name="mFrom"></label><label>Até o mês<input type="month" name="mTo"></label></div>
     <div id="fePeriodD" class="grid2"><label>De<input type="date" name="dFrom"></label><label>Até<input type="date" name="dTo"></label></div>
     <div id="feTypes"><span class="lbl">Incluir</span><div style="display:flex;gap:16px"><label class="check"><input type="checkbox" name="inc"> ↑ Receitas</label><label class="check"><input type="checkbox" name="exp"> ↓ Gastos</label></div></div>
     <label class="check" id="feBalWrap"><input type="checkbox" name="bal"> Linhas de saldo acumulado (real, pelo histórico, e previsto)</label>
     <label class="check" id="feFiltWrap"><input type="checkbox" name="filt"> Aplicar os filtros atuais da tela (mês, serviço, destinatário, tipo)</label>
     <div id="feColsWrap"><span class="lbl">Colunas</span><div id="feCols" class="colpick"></div></div>
+    <div id="feZipWrap" style="display:flex;flex-direction:column;gap:8px">
+      <label>Separar os arquivos em pastas por<select name="zipGroup"><option value="month">Mês do pagamento</option><option value="item">Item (serviço)</option><option value="rec">Destinatário</option><option value="none">Sem separação (só por tipo)</option></select></label>
+      <div><span class="lbl">Incluir</span><div style="display:flex;gap:16px;flex-wrap:wrap"><label class="check"><input type="checkbox" name="zInv" checked> Notas fiscais</label><label class="check"><input type="checkbox" name="zRec" checked> Comprovantes</label><label class="check"><input type="checkbox" name="zCon" checked> Contratos</label></div></div>
+      <div class="muted" style="font-size:12px">Cópias exatas dos arquivos anexados (sem alterar nem gerar documentos). Arquivos usados em vários pagamentos entram uma vez só. Os que não puderem ser lidos ficam listados em <b>relatorio.txt</b> dentro do ZIP.</div>
+    </div>
     <label id="feSepWrap">Separador<select name="sep"><option value=";">Ponto e vírgula ( ; ) — Excel em português</option><option value=",">Vírgula ( , )</option><option value="tab">Tabulação</option></select></label>
     <div id="feInfo" style="color:var(--muted);font-size:12px"></div>
     <div class="actions"><span style="flex:1"></span><button type="button" id="feCancel">Cancelar</button><button type="submit" class="primary" id="feGo">Exportar</button></div>
@@ -2711,7 +2716,7 @@ function historyHTML(opts = {}) {
     ${finFilter.month || finFilter.item || finFilter.rec || finFilter.dir ? '<button data-act="clear-filters" title="Remover todos os filtros">✖ Filtros</button>' : ''}
     <select id="fDir" title="Filtrar por tipo"><option value="">Entradas e saídas</option><option value="out"${finFilter.dir === 'out' ? ' selected' : ''}>Só saídas</option><option value="in"${finFilter.dir === 'in' ? ' selected' : ''}>Só entradas</option></select>
     <div class="sep"></div>
-    <button data-act="exp-pdf" title="Exportar o histórico em PDF">🖨️ PDF</button><button data-act="exp-csv" title="Exportar o histórico em CSV">📑 CSV</button>
+    <button data-act="exp-pdf" title="Exportar o histórico em PDF">🖨️ PDF</button><button data-act="exp-csv" title="Exportar o histórico em CSV">📑 CSV</button><button data-act="exp-zip" title="Baixar um ZIP com as notas, comprovantes e contratos anexados">🗂️ Anexos (ZIP)</button>
     <span style="flex:1"></span>
     <span class="kpi exp">Saídas <b>${money(out)}</b></span><span class="kpi inc">Entradas <b>${money(inn)}</b></span>
     <span class="kpi ${inn - out < 0 ? 'neg' : ''}">Saldo <b>${money(inn - out)}</b></span>
@@ -2903,6 +2908,7 @@ finEl.addEventListener('click', e => {
     case 'docs-refresh': refreshDocsFolder(); break;
     case 'exp-pdf': openFinExport(finSub, 'pdf'); break;
     case 'exp-csv': openFinExport(finSub, 'csv'); break;
+    case 'exp-zip': openFinExport('history', 'zip'); break;
     case 'open-att': { const t = state.finance.transactions.find(x => x.id === id); if (t) openAttachment(t[a.dataset.kind]); break; }
     case 'pick-att': { // anexa direto pela tabela (ou abre o diálogo se o navegador não permitir escolher)
       if (!canPick()) { openTxDlg(id); break; }
@@ -3231,6 +3237,132 @@ recDlg.addEventListener('close', () => {
 });
 
 // ---------- Exportação das finanças (PDF / CSV) ----------
+
+// ---------- ZIP dos anexos (notas, comprovantes e contratos) do Histórico de Pagamento ----------
+// Os arquivos entram como estão (método "store", sem compressão nem conversão): o conteúdo é idêntico ao original.
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function makeZip(entries) { // entries: [{ name, data: Uint8Array, date: Date }]
+  const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+  const dos = d => { d = d && !isNaN(d) ? d : new Date(); const y = Math.max(1980, d.getFullYear());
+    return { time: (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1), date: ((y - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate() }; };
+  for (const e of entries) {
+    const name = enc.encode(e.name), crc = crc32(e.data), sz = e.data.length, { time, date } = dos(e.date);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+    lh.setUint16(10, time, true); lh.setUint16(12, date, true); lh.setUint32(14, crc, true); lh.setUint32(18, sz, true); lh.setUint32(22, sz, true);
+    lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+    parts.push(lh.buffer, name, e.data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true);
+    ch.setUint16(12, time, true); ch.setUint16(14, date, true); ch.setUint32(16, crc, true); ch.setUint32(20, sz, true); ch.setUint32(24, sz, true);
+    ch.setUint16(28, name.length, true); ch.setUint32(42, off, true);
+    central.push(ch.buffer, name);
+    off += 30 + name.length + sz;
+  }
+  const cdSize = central.reduce((a, p) => a + p.byteLength, 0), end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, off, true);
+  return new Blob([...parts, ...central, end.buffer], { type: 'application/zip' });
+}
+const zipSafe = s => String(s || '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '') || 'sem nome';
+const ZIP_KIND_DIR = { invoice: 'Notas fiscais', receipt: 'Comprovantes', contractDoc: 'Contratos' };
+const ZIP_GROUPS = { month: 'mês', item: 'item', rec: 'destinatário', none: 'sem separação' };
+function zipGroupName(t, group) {
+  if (group === 'month') { const m = ymOf(t.date); return `${m} - ${ymLong(m)}`; }
+  if (group === 'item') { const it = finItem(t.itemId); return it ? it.name : 'Sem item'; }
+  if (group === 'rec') { const r = finRec(t.recipientId); return r ? r.name : 'Sem destinatário'; }
+  return '';
+}
+// anexos únicos das transações (o mesmo arquivo usado em vários pagamentos entra uma vez só)
+function zipCollect(o) {
+  const uniq = new Map();
+  for (const t of txList(o)) for (const k of o.kinds) {
+    const a = t[k]; if (!a || !(a.path || a.hid)) continue;
+    const key = a.path ? 'p:' + norm(cleanPath(a.path).replace(/\//g, '\\')) : 'h:' + a.hid;
+    if (!uniq.has(key)) uniq.set(key, { att: a, kind: k, uses: [] });
+    uniq.get(key).uses.push(t);
+  }
+  return [...uniq.values()];
+}
+// lê o arquivo de um anexo: 1) vínculo do navegador; 2) caminho, pela pasta dos documentos autorizada
+async function zipReadAtt(a, dir, idx) {
+  let why = '';
+  if (a.hid) {
+    try {
+      const h = await fileDB.get(a.hid);
+      if (h instanceof Blob) return { file: h };
+      if (h && h.queryPermission) {
+        if ((await h.queryPermission({ mode: 'read' })) === 'granted') return { file: await h.getFile() };
+        why = 'vínculo do navegador sem permissão de leitura';
+      } else why = 'vínculo do navegador não encontrado';
+    } catch (e) { why = 'o arquivo vinculado não foi encontrado (movido ou apagado?)'; }
+  }
+  const path = cleanPath(a.path), root = cleanPath(state.finance.docsRoot).replace(/[\\/]+$/, '');
+  if (!path) return { error: why || 'anexo sem caminho' };
+  if (!root) return { error: 'a pasta dos documentos não está configurada (o navegador só lê arquivos de uma pasta autorizada)' };
+  const np = path.replace(/\//g, '\\'), nr = root.replace(/\//g, '\\');
+  if (!norm(np).startsWith(norm(nr) + '\\')) return { error: `o arquivo está fora da pasta dos documentos (${root}); o navegador não consegue lê-lo pelo caminho` };
+  if (!dir) return { error: 'a pasta dos documentos não foi selecionada neste navegador (ou não houve permissão); selecione-a em 📁 Pasta dos documentos' };
+  let rel = np.slice(nr.length + 1).split('\\');
+  const known = idx && idx.files.find(e => norm(e.rel) === norm(rel.join('/'))); // usa a grafia exata da pasta, se estiver na lista
+  if (known) rel = known.rel.split('/');
+  try {
+    let d = dir;
+    for (const seg of rel.slice(0, -1)) d = await d.getDirectoryHandle(seg);
+    return { file: await (await d.getFileHandle(rel[rel.length - 1])).getFile() };
+  } catch (e) { return { error: `arquivo não encontrado no caminho informado${why ? ` (e ${why})` : ''}` }; }
+}
+async function exportZip(o) {
+  const items = zipCollect(o);
+  if (!items.length) { toast('Nenhum anexo nas transações escolhidas'); return; }
+  // pede a permissão de leitura da pasta dos documentos logo no clique (o navegador exige um gesto do usuário)
+  const idx = await getDocIndex(); let dir = idx && idx.handle && idx.handle.kind === 'directory' ? idx.handle : null;
+  if (dir && dir.queryPermission) {
+    try { let perm = await dir.queryPermission({ mode: 'read' }); if (perm !== 'granted') perm = await dir.requestPermission({ mode: 'read' }); if (perm !== 'granted') dir = null; } catch (e) { dir = null; }
+  }
+  const entries = [], used = new Set(), ok = [], fail = [];
+  const uniqName = (folder, name) => {
+    const dot = name.lastIndexOf('.'), base = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '';
+    let n = 1, full = (folder ? folder + '/' : '') + name;
+    while (used.has(full.toLowerCase())) full = (folder ? folder + '/' : '') + `${base} (${++n})${ext}`;
+    used.add(full.toLowerCase()); return full;
+  };
+  let k = 0;
+  for (const x of items) {
+    toast(`🗂️ Lendo anexos… ${++k}/${items.length}`, 1500);
+    const r = await zipReadAtt(x.att, dir, idx);
+    const g = zipGroupName(x.uses[0], o.group), groups = [...new Set(x.uses.map(t => zipGroupName(t, o.group)))];
+    if (r.error) { fail.push({ ...x, why: r.error }); continue; }
+    const folder = [g && zipSafe(g), ZIP_KIND_DIR[x.kind]].filter(Boolean).join('/');
+    const zname = uniqName(folder, zipSafe(attName(x.att) || r.file.name));
+    entries.push({ name: zname, data: new Uint8Array(await r.file.arrayBuffer()), date: new Date(r.file.lastModified || Date.now()) });
+    ok.push({ ...x, zname, size: r.file.size, groups });
+  }
+  // relatório
+  const useTxt = t => `${fmtDateBR(t.date)} · ${t.direction === 'out' ? 'saída' : 'entrada'} ${money(t.amount)} · ${itemLabel(finItem(t.itemId))}${finRec(t.recipientId) ? ' · ' + finRec(t.recipientId).name : ''}${t.notes ? ' · ' + t.notes : ''}`;
+  const now = new Date(), L = [];
+  L.push(`Anexos do Histórico de Pagamento — ${state.name}`, `Gerado em ${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`);
+  L.push(`Separação: por ${ZIP_GROUPS[o.group]} · Tipos: ${o.kinds.map(k2 => ATT_KIND[k2]).join(', ')}${o.from || o.to ? ` · Período: ${o.from ? fmtDateBR(o.from) : 'início'} a ${o.to ? fmtDateBR(o.to) : 'hoje'}` : ''}${o.filters ? ' · Filtros da tela aplicados' : ''}`);
+  L.push('Os arquivos são cópias exatas dos anexos (nada foi convertido ou alterado). Um arquivo usado em vários pagamentos aparece uma vez só.', '');
+  L.push(`Resumo: ${items.length} arquivo(s) anexado(s) · ${ok.length} incluído(s) · ${fail.length} não incluído(s)`, '');
+  if (fail.length) {
+    L.push('=== ARQUIVOS QUE NÃO PUDERAM SER INCLUÍDOS ===');
+    for (const x of fail) { L.push(`- ${ATT_KIND[x.kind]}: ${attName(x.att)}`, `  Caminho: ${x.att.path || '(sem caminho)'}`, `  Motivo: ${x.why}`, `  Usado em ${x.uses.length} pagamento(s):`); x.uses.forEach(t => L.push('    · ' + useTxt(t))); }
+    L.push('');
+  }
+  L.push('=== ARQUIVOS INCLUÍDOS ===');
+  for (const x of ok) {
+    L.push(`- ${x.zname}`, `  Original: ${x.att.path || attName(x.att)}`);
+    if (x.groups.length > 1) L.push(`  Também usado em: ${x.groups.slice(1).join('; ')}`);
+    L.push(`  Usado em ${x.uses.length} pagamento(s):`); x.uses.forEach(t => L.push('    · ' + useTxt(t)));
+  }
+  entries.push({ name: uniqName('', 'relatorio.txt'), data: new TextEncoder().encode('﻿' + L.join('\r\n') + '\r\n'), date: now });
+  const blob = makeZip(entries), name = `${(state.name || 'projeto').replace(/[\\/:*?"<>|]+/g, '_')} - Anexos.zip`;
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 60000);
+  toast(`🗂️ ZIP gerado: ${ok.length} arquivo(s)${fail.length ? ` · ${fail.length} não incluído(s) — veja relatorio.txt` : ''}`, 6000);
+}
 const FIN_VIEW_NAME = { budget: 'Planilha Orçamentária', history: 'Histórico de Pagamento', disb: 'Desembolso' };
 const feDlg = $('#feDlg'), feForm = $('#feForm');
 let feCtx = { view: 'budget', fmt: 'pdf' };
@@ -3242,6 +3374,7 @@ function feOpts() {
   if (v === 'history') {
     o.from = feForm.dFrom.value || ''; o.to = feForm.dTo.value || ''; o.filters = feForm.filt.checked;
     o.cols = pickedCols($('#feCols'));
+    o.group = feForm.zipGroup.value; o.kinds = [feForm.zInv.checked && 'invoice', feForm.zRec.checked && 'receipt', feForm.zCon.checked && 'contractDoc'].filter(Boolean);
   } else {
     let a = feForm.mFrom.value, b = feForm.mTo.value; if (isYM(a) && isYM(b) && a > b) [a, b] = [b, a];
     o.months = isYM(a) && isYM(b) ? monthList(a, b) : finMonths();
@@ -3254,7 +3387,9 @@ function setFeFmt(fmt) {
   feCtx.fmt = fmt;
   $('#feFmt').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === fmt));
   $('#feSepWrap').style.display = fmt === 'csv' ? '' : 'none';
-  $('#feGo').textContent = fmt === 'csv' ? '📑 Exportar CSV' : '🖨️ Exportar PDF';
+  $('#feGo').textContent = fmt === 'csv' ? '📑 Exportar CSV' : fmt === 'zip' ? '🗂️ Baixar ZIP' : '🖨️ Exportar PDF';
+  $('#feZipWrap').style.display = fmt === 'zip' ? 'flex' : 'none';
+  $('#feColsWrap').style.display = feCtx.view === 'history' && fmt !== 'zip' ? '' : 'none';
   if (feCtx.view === 'history') {
     const cols = fmt === 'csv' ? [...HIST_COLS, ...HIST_CSV_EXTRA] : HIST_COLS;
     const sel = prefs['feCols_' + fmt] || HIST_COLS.map(c => c.key);
@@ -3275,6 +3410,9 @@ function openFinExport(view, fmt) {
   $('#feBalWrap').style.display = view === 'disb' ? '' : 'none';
   $('#feFiltWrap').style.display = isH ? '' : 'none';
   $('#feColsWrap').style.display = isH ? '' : 'none';
+  $('#feFmtZip').style.display = isH ? '' : 'none';
+  feForm.zipGroup.value = prefs.zipGroup || 'month';
+  const zk = prefs.zipKinds || ATT_KINDS; feForm.zInv.checked = zk.includes('invoice'); feForm.zRec.checked = zk.includes('receipt'); feForm.zCon.checked = zk.includes('contractDoc');
   const p = finPeriod(); feForm.mFrom.value = p.start; feForm.mTo.value = p.end;
   const tx = txSorted(); feForm.dFrom.value = tx.length ? tx[0].date : ''; feForm.dTo.value = tx.length ? tx[tx.length - 1].date : '';
   feForm.inc.checked = view === 'budget' || disbType === 'income'; feForm.exp.checked = view === 'budget' || disbType === 'expense';
@@ -3288,7 +3426,11 @@ function openFinExport(view, fmt) {
 function updateFeInfo() {
   const o = feOpts(), info = $('#feInfo'), go = $('#feGo');
   let msg = '', ok = true;
-  if (feCtx.view === 'history') {
+  if (feCtx.view === 'history' && feCtx.fmt === 'zip') {
+    const n = o.kinds.length ? zipCollect(o).length : 0;
+    ok = n > 0;
+    msg = !o.kinds.length ? 'Marque ao menos um tipo de anexo.' : `${n} arquivo(s) anexado(s) em ${txList(o).length} transação(ões)`;
+  } else if (feCtx.view === 'history') {
     const n = txList(o).length;
     ok = n > 0 && o.cols.length > 0;
     msg = !o.cols.length ? 'Escolha ao menos uma coluna.' : `${n} transação(ões)${o.from || o.to ? ' no período' : ''}`;
@@ -3306,6 +3448,7 @@ $('#feCancel').onclick = () => feDlg.close();
 feForm.addEventListener('submit', e => {
   e.preventDefault();
   const o = feOpts(), v = feCtx.view;
+  if (feCtx.fmt === 'zip') { prefs.zipGroup = o.group; prefs.zipKinds = o.kinds; savePrefs(); feDlg.close(); exportZip(o).catch(err => toast('Não foi possível gerar o ZIP: ' + err.message)); return; }
   if (v === 'history') prefs['feCols_' + feCtx.fmt] = o.cols;
   if (feCtx.fmt === 'csv') { prefs.csvSep = feForm.sep.value; savePrefs(); feDlg.close(); exportFinCSV(v, o, feForm.sep.value === 'tab' ? '\t' : feForm.sep.value); }
   else { savePrefs(); feDlg.close(); exportFinPDF(v, o); }
