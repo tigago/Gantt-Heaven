@@ -51,7 +51,14 @@ input,textarea,select{font:inherit;color:inherit}
 #timeline{position:sticky;top:0;z-index:4;background:#fff;border-bottom:1px solid var(--line)}
 #list{position:sticky;left:0;z-index:3;background:#fff;border-right:1px solid var(--line);box-shadow:4px 0 8px -6px rgba(0,0,0,.12)}
 #chart{position:relative}
-.cols{display:grid;grid-template-columns:22px 100px 26px 1fr 64px 64px 48px 76px;align-items:center;gap:0 4px;padding-right:8px}
+.cols{display:grid;grid-template-columns:22px var(--w-cat,100px) var(--w-num,26px) var(--w-name,124px) var(--w-start,64px) var(--w-end,64px) var(--w-dur,48px) var(--w-team,76px);align-items:center;gap:0 4px;padding-right:8px}
+.row .cols>*,.cols>*{min-width:0}
+#corner .cols>span{position:relative;align-self:stretch;display:flex;align-items:center}
+#corner .cols>span[style*="text-align:right"]{justify-content:flex-end}
+.colrz{position:absolute;top:-22px;bottom:0;right:-5px;width:9px;cursor:col-resize;z-index:2}
+.colrz::after{content:'';position:absolute;left:4px;top:24px;bottom:8px;width:1px;background:#d5dae5}
+.colrz:hover::after,.colrz.on::after{background:var(--accent);width:2px;left:3.5px}
+body.colresizing,body.colresizing *{cursor:col-resize !important;user-select:none}
 #corner .cols{height:100%;color:var(--muted);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding-top:22px}
 .row{height:var(--row);border-bottom:1px solid #d5dae5}
 .row:has(+ .row.sec){border-bottom:1px dashed #e6e9f0}
@@ -423,7 +430,7 @@ dialog.xwide{width:min(940px,96vw)}
 
 <div id="scroller">
   <div id="grid">
-    <div id="corner"><div class="cols"><span></span><span>Categoria</span><span>#</span><span>Tarefa</span><span>Início</span><span>Fim</span><span style="text-align:right">Dias</span><span style="padding-left:4px">Time</span></div></div>
+    <div id="corner"><div class="cols"><span></span><span>Categoria<i class="colrz" data-c="cat" title="Arraste para mudar a largura (duplo clique: largura padrão)"></i></span><span>#<i class="colrz" data-c="num" title="Arraste para mudar a largura (duplo clique: largura padrão)"></i></span><span>Tarefa<i class="colrz" data-c="name" title="Arraste para mudar a largura (duplo clique: largura padrão)"></i></span><span>Início<i class="colrz" data-c="start" title="Arraste para mudar a largura (duplo clique: largura padrão)"></i></span><span>Fim<i class="colrz" data-c="end" title="Arraste para mudar a largura (duplo clique: largura padrão)"></i></span><span style="text-align:right">Dias<i class="colrz" data-c="dur" title="Arraste para mudar a largura (duplo clique: largura padrão)"></i></span><span style="padding-left:4px">Time<i class="colrz" data-c="team" title="Arraste para mudar a largura (duplo clique: largura padrão)"></i></span></div></div>
     <div id="timeline"></div>
     <div id="list"></div>
     <div id="chart"></div>
@@ -682,7 +689,8 @@ dialog.xwide{width:min(940px,96vw)}
 <script>
 "use strict";
 // ---------- Constantes e utilidades ----------
-const ROW = 38, HEAD = 54, LEFT = 560, DAY = 86400000;
+const ROW = 38, HEAD = 54, DAY = 86400000;
+let LEFT = 560; // largura da tabela à esquerda do gráfico (muda ao redimensionar as colunas)
 const STORE = 'gantt-heaven:v1';
 const PALETTE = ['#4f6bed','#e5534b','#2da44e','#d4a72c','#a371f7','#f0883e','#1f9bcf','#db61a2','#57ab5a','#768390','#c2185b','#00897b'];
 const WD = ['dom','seg','ter','qua','qui','sex','sáb'];
@@ -1449,6 +1457,16 @@ const PREFS = 'gantt-heaven:prefs';
 const prefs = { pdfTable: true, pdfMarks: true, pdfCols: ALL_TABLE_KEYS.slice(), csvCols: ALL_TABLE_KEYS.slice(), csvSep: ';' };
 try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREFS) || '{}')); } catch (e) {}
 const savePrefs = () => { try { localStorage.setItem(PREFS, JSON.stringify(prefs)); } catch (e) {} };
+// ---------- Largura das colunas da tabela do cronograma (arrastar a borda no cabeçalho; salva neste navegador) ----------
+const COLW_DEF = { cat: 100, num: 26, name: 124, start: 64, end: 64, dur: 48, team: 76 }, COLW_MIN = { cat: 40, num: 20, name: 60, start: 44, end: 44, dur: 30, team: 30 };
+function colW(k) { const v = prefs.colW && prefs.colW[k]; return Number.isFinite(v) ? v : COLW_DEF[k]; }
+function applyColWidths() {
+  const root = document.documentElement.style;
+  let sum = 22 + 7 * 4 + 8; // alça + espaços entre colunas + margem direita
+  for (const k in COLW_DEF) { const w = colW(k); root.setProperty('--w-' + k, w + 'px'); sum += w; }
+  LEFT = sum; root.setProperty('--left', sum + 'px');
+}
+applyColWidths();
 
 function renderColPicker(el, cols, selected) {
   el.innerHTML = cols.map(c => `<label class="colopt"><input type="checkbox" value="${c.key}" ${selected.includes(c.key) ? 'checked' : ''}><span>${esc(c.label)}</span></label>`).join('');
@@ -2145,6 +2163,21 @@ timelineEl.addEventListener('click', e => {
   });
 });
 $('#btnAdd').onclick = addTask;
+// redimensionar colunas pela borda no cabeçalho
+$('#corner').addEventListener('pointerdown', e => {
+  const h = e.target.closest('.colrz'); if (!h || e.button !== 0) return;
+  e.preventDefault(); e.stopPropagation();
+  const k = h.dataset.c, x0 = e.clientX, w0 = colW(k);
+  h.classList.add('on'); document.body.classList.add('colresizing');
+  const move = ev => { prefs.colW = { ...(prefs.colW || {}), [k]: clamp(Math.round(w0 + ev.clientX - x0), COLW_MIN[k], 700) }; applyColWidths(); };
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); h.classList.remove('on'); document.body.classList.remove('colresizing'); savePrefs(); render(); };
+  window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+});
+$('#corner').addEventListener('dblclick', e => {
+  const h = e.target.closest('.colrz'); if (!h) return;
+  if (prefs.colW) delete prefs.colW[h.dataset.c];
+  applyColWidths(); savePrefs(); render();
+});
 $('#btnMembers').onclick = () => openMgr('members');
 $('#btnCategories').onclick = () => openMgr('categories');
 $('#btnUndo').onclick = undo;
