@@ -260,8 +260,16 @@ button.income-btn:hover{background:#eaf7ee}
 .ft.disb tr.g-cat td.dc small{color:#3c4458}
 .ft.disb td.dc.ed{padding:3px 6px;height:auto}
 .ft.disb .dname{display:flex;align-items:center;gap:6px}
-.ft.disb .dname span{overflow:hidden;text-overflow:ellipsis}
-.ft.disb .dname button{margin-left:auto;flex:none;padding:2px 7px;font-size:11px;border:1px solid var(--line);background:#fff;border-radius:6px;color:var(--muted);opacity:0}
+.ft.disb .dname span{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.ft.disb td.dn{height:auto;padding:4px 8px}
+.ft.disb .dname b.tp{flex:none;font-size:12.5px;font-variant-numeric:tabular-nums;color:#4f6bed}
+.ft.disb .dsub{display:flex;align-items:center;gap:8px}
+.ft.disb .dsub small{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums;flex:none}
+.ft.disb .dsub .dbar{flex:1;margin-top:0}
+.ft.disb td.dn.done b.tp{color:#1a7f37}.ft.disb td.dn.done .dbar i{background:#2da44e}
+.ft.disb td.dn.over b.tp{color:#c93c37}.ft.disb td.dn.over .dbar i{background:#e5534b}
+.ft.disb td.dn.none b.tp{color:#9aa3b5}.ft.disb td.dn.unplanned b.tp{color:#c2621a;font-size:11px}
+.ft.disb .dname button{flex:none;padding:2px 7px;font-size:11px;border:1px solid var(--line);background:#fff;border-radius:6px;color:var(--muted);opacity:0}
 .ft.disb tr.item:hover .dname button,.ft.disb .dname button:focus{opacity:1}
 .ft.disb .dname button:hover{color:var(--text);border-color:#c9cedb}
 .ft.disb td.dc input.fi.dp{min-width:0;width:100%;font-size:11.5px;padding:1px 5px;margin-top:2px;text-align:right;border-color:#e3e6ee;background:#fff;color:#3c4458;font-variant-numeric:tabular-nums}
@@ -2273,6 +2281,16 @@ function balances(months) {
   const plan = months.map(m => acc = round2(acc + planOf('income', m) - planOf('expense', m)));
   return { real, plan };
 }
+// célula do nome no desembolso, com a % do orçamento total realizada (realizado / orçamento)
+function nameCell(label, real, budget, extra = '', title = '') {
+  let pct = '', cls = 'none', bar = 0;
+  if (budget) {
+    const diff = round2(real - budget);
+    cls = diff > 0 ? 'over' : diff === 0 ? 'done' : real > 0 ? 'part' : 'none';
+    pct = pctLabel(real, budget) + '%'; bar = clamp(real / budget * 100, 0, 100);
+  } else if (real) { cls = 'unplanned'; pct = 'sem orçamento'; }
+  return `<td class="stk dn ${cls}"${title ? ` title="${title}"` : ''}><div class="dname"><span>${label}</span>${extra}<b class="tp">${pct}</b></div><div class="dsub"><small>${moneyShort(real)} / ${moneyShort(budget)}</small><div class="dbar"><i style="width:${bar}%"></i></div></div></td>`;
+}
 // célula do desembolso; com edit = { id, m } o previsto do mês é editável na própria célula
 function dcell(real, prev, cur, edit) {
   const c = cur ? ' cur' : '';
@@ -2313,7 +2331,7 @@ function disbHTML(opts = {}) {
   if (orphan || outside) h += `<div class="fin-note">⚠️ ${[orphan && `${orphan} transação(ões) sem item da planilha`, outside && `${outside} transação(ões) fora do período exibido (contam apenas na coluna Total)`].filter(Boolean).join(' · ')}</div>`;
   if (!items.length) return h + `<div class="fin-empty"><div style="font-size:40px">📊</div><h3>Nada para mostrar</h3><p>Cadastre os itens na <a href="#" data-act="go-budget">Planilha Orçamentária</a>; aqui você distribui a previsão de cada um pelos meses e compara com o que foi registrado no <a href="#" data-act="go-history">Histórico de Pagamento</a>.</p></div>`;
   h += `<div class="fin-legend"><span><i class="lg part"></i>parcial</span><span><i class="lg done"></i>100% ${word}</span><span><i class="lg over"></i>acima do previsto</span><span><i class="lg unplanned"></i>não previsto no mês</span><span class="muted">${opts.print ? `Cada célula: % ${word} · realizado / previsto no mês` : `Cada célula: % ${word} · realizado · <b>previsto do mês (editável)</b>`}</span></div>`;
-  h += `<div class="fin-scroll"><table class="ft disb"><thead><tr><th class="stk">Item</th>${months.map(m => `<th class="${m === cur ? 'cur' : ''}">${ymLabel(m)}</th>`).join('')}<th>Total (orçamento)</th><th class="num">Distribuição</th></tr></thead><tbody>`;
+  h += `<div class="fin-scroll"><table class="ft disb"><thead><tr><th class="stk" title="Ao lado do nome: % ${word} do orçamento total · realizado / orçamento">Item · % do orçamento</th>${months.map(m => `<th class="${m === cur ? 'cur' : ''}">${ymLabel(m)}</th>`).join('')}<th class="num">Distribuição</th></tr></thead><tbody>`;
   const totP = {}, totR = {}; let tBudget = 0, tReal = 0;
   for (const g of groupItems(dt)) {
     const cp = {}, cr = {}; let cB = 0, cR = 0;
@@ -2322,17 +2340,17 @@ function disbHTML(opts = {}) {
       const r = rm.get(i.id) || { total: 0, m: {} };
       months.forEach(m => { cp[m] = (cp[m] || 0) + (i.plan[m] || 0); cr[m] = (cr[m] || 0) + (r.m[m] || 0); });
       cB += i.amount; cR += r.total;
-      rows += `<tr class="item" data-id="${i.id}"><td class="stk" title="${esc(i.name)}">${opts.print ? esc(i.name) : `<div class="dname"><span>${esc(i.name)}</span><button data-act="distrib" title="Distribuir a quantia igualmente entre meses">⚖ Distribuir</button></div>`}</td>${months.map(m => dcell(r.m[m] || 0, i.plan[m] || 0, m === cur, opts.print ? null : { id: i.id, m })).join('')}${dcell(r.total, i.amount, false).replace('class="dc', 'class="dc tot')}${distDiffCell(i)}</tr>`;
+      rows += `<tr class="item" data-id="${i.id}">${nameCell(esc(i.name), r.total, i.amount, opts.print ? '' : '<button data-act="distrib" title="Distribuir a quantia igualmente entre meses">⚖ Distribuir</button>', esc(i.name))}${months.map(m => dcell(r.m[m] || 0, i.plan[m] || 0, m === cur, opts.print ? null : { id: i.id, m })).join('')}${distDiffCell(i)}</tr>`;
     }
-    h += `<tr class="g-cat"><td class="stk">${g.cat ? esc(g.cat) : '<i>Sem categoria</i>'}</td>${months.map(m => dcell(round2(cr[m] || 0), round2(cp[m] || 0), m === cur)).join('')}${dcell(round2(cR), round2(cB), false).replace('class="dc', 'class="dc tot')}<td></td></tr>` + rows;
+    h += `<tr class="g-cat">${nameCell(g.cat ? esc(g.cat) : '<i>Sem categoria</i>', round2(cR), round2(cB))}${months.map(m => dcell(round2(cr[m] || 0), round2(cp[m] || 0), m === cur)).join('')}<td></td></tr>` + rows;
     months.forEach(m => { totP[m] = (totP[m] || 0) + (cp[m] || 0); totR[m] = (totR[m] || 0) + (cr[m] || 0); });
     tBudget += cB; tReal += cR;
   }
-  h += `<tr class="g-total"><td class="stk">Total</td>${months.map(m => dcell(round2(totR[m] || 0), round2(totP[m] || 0), m === cur)).join('')}${dcell(round2(tReal), round2(tBudget), false).replace('class="dc', 'class="dc tot')}<td></td></tr>`;
+  h += `<tr class="g-total">${nameCell('Total', round2(tReal), round2(tBudget))}${months.map(m => dcell(round2(totR[m] || 0), round2(totP[m] || 0), m === cur)).join('')}<td></td></tr>`;
   if (opts.bal !== false) {
     const { real, plan } = balances(months);
-    h += `<tr class="g-bal"><td class="stk" title="Entradas menos saídas registradas no Histórico de Pagamento, acumuladas até o fim de cada mês">Saldo acumulado real</td>${real.map((v, k) => `<td class="num${months[k] === cur ? ' cur' : ''} ${v < 0 ? 'neg' : ''}">${v === null ? '' : money(v)}</td>`).join('')}<td></td><td></td></tr>`;
-    h += `<tr class="g-bal"><td class="stk" title="Receitas previstas menos gastos previstos, acumulados">Saldo previsto acumulado</td>${plan.map((v, k) => `<td class="num${months[k] === cur ? ' cur' : ''} ${v < 0 ? 'neg' : ''}">${money(v)}</td>`).join('')}<td></td><td></td></tr>`;
+    h += `<tr class="g-bal"><td class="stk" title="Entradas menos saídas registradas no Histórico de Pagamento, acumuladas até o fim de cada mês">Saldo acumulado real</td>${real.map((v, k) => `<td class="num${months[k] === cur ? ' cur' : ''} ${v < 0 ? 'neg' : ''}">${v === null ? '' : money(v)}</td>`).join('')}<td></td></tr>`;
+    h += `<tr class="g-bal"><td class="stk" title="Receitas previstas menos gastos previstos, acumulados">Saldo previsto acumulado</td>${plan.map((v, k) => `<td class="num${months[k] === cur ? ' cur' : ''} ${v < 0 ? 'neg' : ''}">${money(v)}</td>`).join('')}<td></td></tr>`;
   }
   return h + '</tbody></table></div>';
 }
