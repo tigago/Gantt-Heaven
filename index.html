@@ -645,6 +645,7 @@ dialog.xwide{width:min(940px,96vw)}
     <div id="feZipWrap" style="display:flex;flex-direction:column;gap:8px">
       <label>Separar os arquivos em pastas por<select name="zipGroup"><option value="month">Mês do pagamento</option><option value="item">Item (serviço)</option><option value="rec">Destinatário</option><option value="none">Sem separação (só por tipo)</option></select></label>
       <div><span class="lbl">Incluir</span><div style="display:flex;gap:16px;flex-wrap:wrap"><label class="check"><input type="checkbox" name="zInv" checked> Notas fiscais</label><label class="check"><input type="checkbox" name="zRec" checked> Comprovantes</label><label class="check"><input type="checkbox" name="zCon" checked> Contratos</label></div></div>
+      <div id="feZipDir" style="font-size:12px;color:#3c4458"></div>
       <div class="muted" style="font-size:12px">Cópias exatas dos arquivos anexados (sem alterar nem gerar documentos). Arquivos usados em vários pagamentos entram uma vez só. Os que não puderem ser lidos ficam listados em <b>relatorio.txt</b> dentro do ZIP.</div>
     </div>
     <label id="feSepWrap">Separador<select name="sep"><option value=";">Ponto e vírgula ( ; ) — Excel em português</option><option value=",">Vírgula ( , )</option><option value="tab">Tabulação</option></select></label>
@@ -3286,7 +3287,7 @@ function zipCollect(o) {
   return [...uniq.values()];
 }
 // lê o arquivo de um anexo: 1) vínculo do navegador; 2) caminho, pela pasta dos documentos autorizada
-async function zipReadAtt(a, dir, idx) {
+async function zipReadAtt(a, dir, idx, dirNote) {
   let why = '';
   if (a.hid) {
     try {
@@ -3303,7 +3304,7 @@ async function zipReadAtt(a, dir, idx) {
   if (!root) return { error: 'a pasta dos documentos não está configurada (o navegador só lê arquivos de uma pasta autorizada)' };
   const np = path.replace(/\//g, '\\'), nr = root.replace(/\//g, '\\');
   if (!norm(np).startsWith(norm(nr) + '\\')) return { error: `o arquivo está fora da pasta dos documentos (${root}); o navegador não consegue lê-lo pelo caminho` };
-  if (!dir) return { error: 'a pasta dos documentos não foi selecionada neste navegador (ou não houve permissão); selecione-a em 📁 Pasta dos documentos' };
+  if (!dir) return { error: dirNote || 'a pasta dos documentos não foi selecionada neste navegador; selecione-a em 📁 Pasta dos documentos' };
   let rel = np.slice(nr.length + 1).split('\\');
   const known = idx && idx.files.find(e => norm(e.rel) === norm(rel.join('/'))); // usa a grafia exata da pasta, se estiver na lista
   if (known) rel = known.rel.split('/');
@@ -3313,14 +3314,42 @@ async function zipReadAtt(a, dir, idx) {
     return { file: await (await d.getFileHandle(rel[rel.length - 1])).getFile() };
   } catch (e) { return { error: `arquivo não encontrado no caminho informado${why ? ` (e ${why})` : ''}` }; }
 }
-async function exportZip(o) {
+// anexos com caminho dentro da pasta dos documentos (os que precisam da pasta autorizada para serem lidos)
+function zipNeedsDir(items) {
+  const root = cleanPath(state.finance.docsRoot).replace(/[\\/]+$/, '').replace(/\//g, '\\'); if (!root) return false;
+  return items.some(x => norm(cleanPath(x.att.path).replace(/\//g, '\\')).startsWith(norm(root) + '\\'));
+}
+// chamado direto no clique "Baixar ZIP" (o navegador só mostra o pedido de autorização/seleção num gesto do usuário):
+// pede permissão para ler a pasta já selecionada ou, se ela não foi selecionada neste navegador, pede para selecioná-la
+function zipAskFolder(o) {
+  const idx = feCtx.docIdx, h = idx && idx.handle && idx.handle.kind === 'directory' ? idx.handle : null;
+  if (!zipNeedsDir(zipCollect(o))) return null;
+  if (h && h.requestPermission) return h.requestPermission({ mode: 'read' }).then(perm => ({ perm, handle: h, idx })).catch(() => null);
+  if (!window.showDirectoryPicker) return null;
+  toast(`Selecione a pasta dos documentos ("${baseName(cleanPath(state.finance.docsRoot).replace(/[\\/]+$/, ''))}") para o navegador poder ler os arquivos`, 6000);
+  return showDirectoryPicker(fileHandle ? { mode: 'read', startIn: fileHandle } : { mode: 'read' })
+    .then(handle => ({ perm: 'granted', handle, picked: true })).catch(e => ({ perm: e.name === 'AbortError' ? 'cancelled' : 'denied' }));
+}
+async function exportZip(o, ask) {
   const items = zipCollect(o);
   if (!items.length) { toast('Nenhum anexo nas transações escolhidas'); return; }
-  // pede a permissão de leitura da pasta dos documentos logo no clique (o navegador exige um gesto do usuário)
-  const idx = await getDocIndex(); let dir = idx && idx.handle && idx.handle.kind === 'directory' ? idx.handle : null;
-  if (dir && dir.queryPermission) {
-    try { let perm = await dir.queryPermission({ mode: 'read' }); if (perm !== 'granted') perm = await dir.requestPermission({ mode: 'read' }); if (perm !== 'granted') dir = null; } catch (e) { dir = null; }
+  let idx = await getDocIndex(), dir = idx && idx.handle && idx.handle.kind === 'directory' ? idx.handle : null, dirNote = '';
+  const r0 = ask ? await ask : null;
+  if (r0 && r0.picked && r0.handle) { // pasta selecionada agora: confere o nome e guarda para os próximos usos
+    const want = baseName(cleanPath(state.finance.docsRoot).replace(/[\\/]+$/, ''));
+    if (want && norm(r0.handle.name) !== norm(want) && !confirm(`A pasta selecionada ("${r0.handle.name}") é diferente da pasta dos documentos ("${want}"). Usar mesmo assim?`)) dir = null;
+    else {
+      toast('🗂️ Lendo a lista de arquivos da pasta…', 2500);
+      idx = { folder: r0.handle.name, files: await scanDirHandle(r0.handle, '', []), handle: r0.handle, at: Date.now() };
+      try { await setDocIndex(idx); } catch (e) {}
+      dir = r0.handle;
+    }
+  } else if (dir) {
+    let perm = r0 && r0.handle === dir ? r0.perm : null;
+    try { if (!perm) perm = await dir.queryPermission({ mode: 'read' }); } catch (e) { perm = 'denied'; }
+    if (perm !== 'granted') { dir = null; dirNote = 'a autorização para ler a pasta dos documentos não foi concedida'; }
   }
+  if (r0 && r0.perm === 'cancelled') dirNote = 'a seleção da pasta dos documentos foi cancelada';
   const entries = [], used = new Set(), ok = [], fail = [];
   const uniqName = (folder, name) => {
     const dot = name.lastIndexOf('.'), base = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '';
@@ -3331,7 +3360,7 @@ async function exportZip(o) {
   let k = 0;
   for (const x of items) {
     toast(`🗂️ Lendo anexos… ${++k}/${items.length}`, 1500);
-    const r = await zipReadAtt(x.att, dir, idx);
+    const r = await zipReadAtt(x.att, dir, idx, dirNote);
     const g = zipGroupName(x.uses[0], o.group), groups = [...new Set(x.uses.map(t => zipGroupName(t, o.group)))];
     if (r.error) { fail.push({ ...x, why: r.error }); continue; }
     const folder = [g && zipSafe(g), ZIP_KIND_DIR[x.kind]].filter(Boolean).join('/');
@@ -3411,6 +3440,7 @@ function openFinExport(view, fmt) {
   $('#feFiltWrap').style.display = isH ? '' : 'none';
   $('#feColsWrap').style.display = isH ? '' : 'none';
   $('#feFmtZip').style.display = isH ? '' : 'none';
+  feCtx.docIdx = null; zipFolderStatus();
   feForm.zipGroup.value = prefs.zipGroup || 'month';
   const zk = prefs.zipKinds || ATT_KINDS; feForm.zInv.checked = zk.includes('invoice'); feForm.zRec.checked = zk.includes('receipt'); feForm.zCon.checked = zk.includes('contractDoc');
   const p = finPeriod(); feForm.mFrom.value = p.start; feForm.mTo.value = p.end;
@@ -3422,6 +3452,17 @@ function openFinExport(view, fmt) {
   feForm.sep.value = prefs.csvSep || ';';
   setFeFmt(fmt);
   feDlg.showModal();
+}
+async function zipFolderStatus() {
+  const el = $('#feZipDir'); if (!el) return;
+  const root = cleanPath(state.finance.docsRoot);
+  if (!root) { el.textContent = '📁 Pasta dos documentos não configurada: entram só os arquivos vinculados neste navegador.'; return; }
+  const idx = feCtx.docIdx = await getDocIndex(), h = idx && idx.handle && idx.handle.kind === 'directory' ? idx.handle : null;
+  let perm = null; try { if (h && h.queryPermission) perm = await h.queryPermission({ mode: 'read' }); } catch (e) {}
+  el.textContent = perm === 'granted' ? `📁 Pasta dos documentos "${idx.folder}" autorizada.`
+    : h ? `📁 Ao baixar, o navegador vai pedir autorização para ler a pasta "${idx.folder}".`
+    : window.showDirectoryPicker ? `📁 Ao baixar, o navegador vai pedir para você selecionar a pasta dos documentos ("${baseName(root.replace(/[\\/]+$/, ''))}").`
+    : '📁 Este navegador não dá acesso a pastas: entram só os arquivos vinculados neste navegador.';
 }
 function updateFeInfo() {
   const o = feOpts(), info = $('#feInfo'), go = $('#feGo');
@@ -3448,7 +3489,11 @@ $('#feCancel').onclick = () => feDlg.close();
 feForm.addEventListener('submit', e => {
   e.preventDefault();
   const o = feOpts(), v = feCtx.view;
-  if (feCtx.fmt === 'zip') { prefs.zipGroup = o.group; prefs.zipKinds = o.kinds; savePrefs(); feDlg.close(); exportZip(o).catch(err => toast('Não foi possível gerar o ZIP: ' + err.message)); return; }
+  if (feCtx.fmt === 'zip') {
+    const ask = zipAskFolder(o); // antes de qualquer espera: o pedido de autorização precisa do clique
+    prefs.zipGroup = o.group; prefs.zipKinds = o.kinds; savePrefs(); feDlg.close();
+    exportZip(o, ask).catch(err => toast('Não foi possível gerar o ZIP: ' + err.message)); return;
+  }
   if (v === 'history') prefs['feCols_' + feCtx.fmt] = o.cols;
   if (feCtx.fmt === 'csv') { prefs.csvSep = feForm.sep.value; savePrefs(); feDlg.close(); exportFinCSV(v, o, feForm.sep.value === 'tab' ? '\t' : feForm.sep.value); }
   else { savePrefs(); feDlg.close(); exportFinPDF(v, o); }
