@@ -84,7 +84,13 @@ input,textarea,select{font:inherit;color:inherit}
 .secbar:hover rect{filter:brightness(.95);stroke-width:2}
 .band.secband{fill:#fbfbfd}
 .secs{display:flex;flex-direction:column;gap:6px;margin:4px 0 6px}
-.secrow{display:grid;grid-template-columns:auto 1fr 140px 140px auto;gap:6px;align-items:center}
+.secrow{display:grid;grid-template-columns:auto 1fr 140px 140px auto;gap:6px;align-items:center;padding-bottom:6px;border-bottom:1px dashed #e6e9f0}
+.secrow .secmem{grid-column:2 / -1;display:flex;gap:4px;flex-wrap:wrap;font-size:11.5px}
+.chip.sm{padding:1px 8px 1px 2px;font-size:11px}.chip.sm .dot{width:14px;height:14px;font-size:7px}
+.chip.sm:not(.on){opacity:.5}
+.dlg label.secshow{display:inline-flex !important;flex-direction:row !important;align-items:center;gap:4px;font-weight:400;font-size:12px;margin-left:8px;color:var(--text)}
+.halo{paint-order:stroke;stroke:rgba(0,0,0,.45);stroke-width:3px;stroke-linejoin:round}
+.row .stog.off{background:#f4f5f8}
 .secrow input[type=text],.secrow input[type=date]{border:1px solid var(--line);border-radius:7px;padding:5px 7px;font:inherit;font-size:12.5px;color:var(--text)}
 .secrow button{border:none;background:none;color:var(--muted);padding:2px 6px}
 .secrow button:hover{color:var(--danger)}
@@ -449,7 +455,7 @@ dialog.xwide{width:min(940px,96vw)}
       <label>Duração (dias)<input type="number" name="duration" min="1" required></label>
     </div>
     <label>Progresso: <span id="progVal">0%</span><input type="range" name="progress" min="0" max="100" step="5"></label>
-    <div><span class="lbl">Seções <span class="muted" style="font-weight:400">— etapas tickáveis dentro do período da tarefa (com seções, o progresso é calculado por elas, proporcional à duração de cada uma)</span></span>
+    <div><span class="lbl">Seções <label class="check secshow" title="Mostrar as seções desta tarefa no cronograma"><input type="checkbox" name="showSecs"> mostrar no cronograma</label> <span class="muted" style="font-weight:400">— etapas tickáveis dentro do período da tarefa (com seções, o progresso é calculado por elas, proporcional à duração de cada uma)</span></span>
       <div id="dlgSecs" class="secs"></div>
       <button type="button" id="dlgAddSec" class="secadd">+ Seção</button></div>
     <label>Categoria<select name="category" id="dlgCategory"></select></label>
@@ -747,7 +753,8 @@ function deserialize(o) {
       duration: Math.max(1, Math.round(+t.duration || 1)), progress: clamp(Math.round(+t.progress || 0), 0, 100),
       members: (t.members || []).map(String).filter(id => mids.has(id)), category: cids.has(String(t.category)) ? String(t.category) : null, deps: (t.deps || []).map(String), notes: String(t.notes || ''),
       // seções: etapas "tickáveis" dentro do período da tarefa (off = dias a partir do início da tarefa)
-      sections: (Array.isArray(t.sections) ? t.sections : []).map(x => ({ id: String(x.id || uid()), name: String(x.name ?? 'Seção'), off: Math.max(0, Math.round(+x.off || 0)), dur: Math.max(1, Math.round(+x.dur || 1)), done: !!x.done, deps: (Array.isArray(x.deps) ? x.deps : []).map(String) })) };
+      sections: (Array.isArray(t.sections) ? t.sections : []).map(x => ({ id: String(x.id || uid()), name: String(x.name ?? 'Seção'), off: Math.max(0, Math.round(+x.off || 0)), dur: Math.max(1, Math.round(+x.dur || 1)), done: !!x.done, deps: (Array.isArray(x.deps) ? x.deps : []).map(String), members: (Array.isArray(x.members) ? x.members : []).map(String) })),
+      hideSecs: !!t.hideSecs }; // hideSecs: seções ocultas na linha da tarefa (salvo no projeto)
   });
   const tids = new Set([...tasks.map(t => t.id), ...tasks.flatMap(t => t.sections.map(x => x.id))]); // tarefas e seções
   tasks.forEach(t => t.deps = [...new Set(t.deps)].filter(d => tids.has(d) && d !== t.id));
@@ -818,6 +825,7 @@ function schedule() {
 function fitSections(t) {
   if (!t.sections) t.sections = [];
   for (const x of t.sections) {
+    x.members = (x.members || []).filter(id => t.members.includes(id)); // membros da seção: só os da tarefa
     x.off = clamp(x.off, 0, t.duration - 1);
     x.dur = clamp(x.dur, 1, t.duration - x.off);
   }
@@ -892,13 +900,13 @@ function filterDesc() {
 let noSections = false; // exportação: sem as linhas de seção (a tabela do PDF lista só as tarefas)
 let exportShow = null; // exportação: { today, progress } — o que desenhar no PDF (null = tela)
 const showToday = () => !exportShow || exportShow.today, showProgress = () => !exportShow || exportShow.progress;
-const secClosed = new Set(); // tarefas com as seções recolhidas (só na tela)
+
 // linhas do cronograma: cada tarefa visível seguida das suas seções (se expandidas)
 function rowModel() {
   const rows = [];
   for (const t of visTasks()) {
     rows.push({ t });
-    if (!noSections && t.sections && t.sections.length && !secClosed.has(t.id)) t.sections.forEach(x => rows.push({ t, s: x }));
+    if (!noSections && t.sections && t.sections.length && !t.hideSecs) t.sections.forEach(x => rows.push({ t, s: x }));
   }
   return rows;
 }
@@ -936,12 +944,12 @@ function renderList() {
         <span class="num"><input type="checkbox" class="secchk" ${sec.done ? 'checked' : ''} title="Marcar a seção como concluída"></span>
         <span class="secname" title="${esc(sec.name)} — duplo clique para editar as seções">${esc(sec.name)}</span>
         <span class="date" title="${fmtLong(a)}">${fmt(a)}</span><span class="date" title="${fmtLong(b)}">${fmt(b)}</span>
-        <span class="sdur">${sec.dur}</span><span></span></div>`;
+        <span class="sdur">${sec.dur}</span><span class="avs" style="padding-left:8px">${avatarsHTML(sec.members || [])}</span></div>`;
       return;
     }
     const cat = category(t.category), i = num.get(t.id) - 1;
     const ns = t.sections ? t.sections.length : 0;
-    const tog = ns ? `<button class="stog" data-tog="${t.id}" title="${secClosed.has(t.id) ? 'Mostrar' : 'Ocultar'} as seções">${secClosed.has(t.id) ? '▸' : '▾'} ${t.sections.filter(x => x.done).length}/${ns}</button>` : '';
+    const tog = ns ? `<button class="stog${t.hideSecs ? ' off' : ''}" data-tog="${t.id}" title="${t.hideSecs ? 'Mostrar' : 'Ocultar'} as seções desta tarefa (${t.sections.filter(x => x.done).length} de ${ns} concluídas)">${t.hideSecs ? '▸' : '▾'} ${t.sections.filter(x => x.done).length}/${ns}</button>` : '';
     h += `<div class="row cols${cat ? ' tint' : ''}${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}"${cat ? ` style="--catbg:${cat.color}45"` : ''}>
       <span class="handle" draggable="true" title="Arraste para reordenar">⠿</span>
       <select class="catsel${cat ? ' has' : ''}" title="${cat ? 'Categoria: ' + esc(cat.name) : 'Sem categoria'}"${cat ? ` style="border-color:${cat.color};background-color:${cat.color}1f"` : ''}>
@@ -1090,6 +1098,13 @@ function fitText(text, maxW, font) {
   return lo ? text.slice(0, lo).trimEnd() + '…' : '';
 }
 
+// preenchimento da barra: uma cor por membro, em faixas horizontais (gradiente com paradas duras)
+function memberFill(ms, gid, defs, fallback = '#9aa3b5') {
+  if (ms.length <= 1) return ms.length ? ms[0].color : fallback;
+  const n = ms.length, stops = ms.map((m, k) => `<stop offset="${(k / n * 100).toFixed(3)}%" stop-color="${m.color}"/><stop offset="${((k + 1) / n * 100).toFixed(3)}%" stop-color="${m.color}"/>`).join('');
+  defs.push(`<linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">${stops}</linearGradient>`);
+  return `url(#${gid})`;
+}
 function linkPath(p, t, ip, it) { return linkPathIdx(p.start + p.duration, ip, t.start, it); }
 // seta de dependência: do fim (dia, exclusivo) na linha ip até o início na linha it
 function linkPathIdx(endIdx, ip, startIdx, it) {
@@ -1140,11 +1155,13 @@ function renderChart() {
   let secBars = '';
   rows.forEach(({ t, s: sec }, i) => {
     if (!sec) return;
-    const ms = t.members.map(member).filter(Boolean), color = ms.length ? ms[0].color : '#9aa3b5';
+    // cores: membros da seção (ou, se não tiver, os da tarefa)
+    const ms = ((sec.members || []).length ? sec.members : t.members).map(member).filter(Boolean), color = ms.length ? ms[0].color : '#9aa3b5';
     const SH = 14, x = (t.start + sec.off - range.start) * dayW, w = sec.dur * dayW, y = i * ROW + (ROW - SH) / 2;
     const lbl = fitText((sec.done ? '✓ ' : '') + sec.name, w - 10, '600 11px "Segoe UI", system-ui, sans-serif');
-    secBars += `<g class="secbar${sec.done ? ' done' : ''}" data-tid="${t.id}" data-sec="${sec.id}"><rect x="${x + 1}" y="${y}" width="${Math.max(w - 2, 2)}" height="${SH}" rx="${SH / 2}" fill="${sec.done ? '#c9cedb' : color}" fill-opacity="${sec.done ? 1 : .55}" stroke="${color}"/>`
-      + (lbl ? `<text x="${x + 7}" y="${y + 11}" style="fill:${sec.done ? '#5b6378' : textOn(color)}">${esc(lbl)}</text>` : '')
+    const fill = sec.done ? '#c9cedb' : memberFill(ms, `sg_${sec.id}`, defs), multi = !sec.done && ms.length > 1;
+    secBars += `<g class="secbar${sec.done ? ' done' : ''}" data-tid="${t.id}" data-sec="${sec.id}"><rect x="${x + 1}" y="${y}" width="${Math.max(w - 2, 2)}" height="${SH}" rx="${SH / 2}" fill="${fill}" fill-opacity="${sec.done ? 1 : .7}" stroke="${color}"/>`
+      + (lbl ? `<text class="${multi ? 'halo' : ''}" x="${x + 7}" y="${y + 11}" style="fill:${sec.done ? '#5b6378' : multi ? '#fff' : textOn(color)}">${esc(lbl)}</text>` : '')
       + `<title>${esc(sec.name)} · ${fmtLong(t.start + sec.off)} → ${fmtLong(t.start + sec.off + sec.dur - 1)}${sec.done ? ' · concluída' : ''} — clique para ${sec.done ? 'desmarcar' : 'marcar como concluída'}; arraste para mover</title>`
       + `<rect class="shandle" data-h="l" x="${x}" y="${y}" width="${Math.min(8, w / 3)}" height="${SH}"><title>Arraste para mudar o início da seção</title></rect>`
       + `<rect class="shandle" data-h="r" x="${x + w - Math.min(8, w / 3)}" y="${y}" width="${Math.min(8, w / 3)}" height="${SH}"><title>Arraste para mudar o fim da seção</title></rect>`
@@ -1156,14 +1173,14 @@ function renderChart() {
     const x = (t.start - range.start) * dayW, w = t.duration * dayW, y = i * ROW + (ROW - H_BAR) / 2, cy = y + R;
     const rx = Math.min(R, w / 2);
     const ms = t.members.map(member).filter(Boolean);
-    const color = ms.length ? ms[0].color : '#9aa3b5';
-    const fg = textOn(color);
+    const color = ms.length ? ms[0].color : '#9aa3b5', multi = ms.length > 1;
+    const fg = multi ? '#fff' : textOn(color);
     const hw = clamp(w / 4, 4, 12);
     let b = `<g class="bar${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}">`;
     const cat = category(t.category);
     b += `<rect class="selring" x="${x - 4}" y="${y - 4}" width="${w + 8}" height="${H_BAR + 8}" rx="${rx + 4}"/>`;
     // a categoria aparece como fundo da linha (faixa), não como borda da barra
-    b += `<rect class="body" x="${x}" y="${y}" width="${w}" height="${H_BAR}" rx="${rx}" fill="${color}"${cat ? ' stroke="rgba(0,0,0,.12)" stroke-width="1"' : ''}/>`;
+    b += `<rect class="body" x="${x}" y="${y}" width="${w}" height="${H_BAR}" rx="${rx}" fill="${memberFill(ms, `mg_${t.id}`, defs)}"${cat ? ' stroke="rgba(0,0,0,.12)" stroke-width="1"' : ''}/>`;
     if (t.progress > 0 && showProgress()) {
       defs.push(`<clipPath id="c_${t.id}"><rect x="${x}" y="${y}" width="${w}" height="${H_BAR}" rx="${rx}"/></clipPath>`);
       b += `<rect x="${x}" y="${y}" width="${w * t.progress / 100}" height="${H_BAR}" fill="rgba(0,0,0,.18)" clip-path="url(#c_${t.id})" pointer-events="none"/>`;
@@ -1180,7 +1197,7 @@ function renderChart() {
     // nome dentro da barra (truncado) ou à direita se não couber
     const inner = w - 12 - avW - 6;
     const label = inner >= 28 ? fitText(t.name, inner, '600 12px "Segoe UI", system-ui, sans-serif') : '';
-    if (label) b += `<text class="lbl" x="${x + 12}" y="${cy + 4}" style="fill:${fg}">${esc(label)}</text>`;
+    if (label) b += `<text class="lbl${multi ? ' halo' : ''}" x="${x + 12}" y="${cy + 4}" style="fill:${fg}">${esc(label)}</text>`;
     else b += `<text class="lbl out" x="${x + w + 20}" y="${cy + 4}">${esc(t.name)}</text>`;
     // alças de redimensionamento (início e fim)
     b += `<rect class="handle" data-h="l" x="${x}" y="${y}" width="${hw}" height="${H_BAR}"><title>Arraste para mudar o início</title></rect>`;
@@ -1787,7 +1804,7 @@ listEl.addEventListener('pointerdown', e => { const row = e.target.closest('.row
 listEl.addEventListener('click', e => {
   if (e.target.id === 'addRow') addTask();
   const tg = e.target.closest('.stog');
-  if (tg) { const id = tg.dataset.tog; secClosed.has(id) ? secClosed.delete(id) : secClosed.add(id); render(); }
+  if (tg) { const t = task(tg.dataset.tog); if (t) mutate(() => t.hideSecs = !t.hideSecs); }
 });
 listEl.addEventListener('change', e => {
   if (!e.target.matches('input.secchk')) return;
@@ -1869,7 +1886,8 @@ function openTaskDlg(id) {
   form.name.value = t.name; form.start.value = fromIdx(t.start); form.end.value = fromIdx(t.start + t.duration - 1);
   form.duration.value = t.duration; form.progress.value = t.progress; $('#progVal').textContent = t.progress + '%';
   form.notes.value = t.notes || '';
-  dlgSecs = (t.sections || []).map(x => ({ id: x.id, name: x.name, a: t.start + x.off, b: t.start + x.off + x.dur - 1, done: x.done, deps: x.deps || [] }));
+  dlgSecs = (t.sections || []).map(x => ({ id: x.id, name: x.name, a: t.start + x.off, b: t.start + x.off + x.dur - 1, done: x.done, deps: x.deps || [], members: [...(x.members || [])] }));
+  form.showSecs.checked = !t.hideSecs;
   renderDlgSecs();
   renderDlgMembers();
   renderDlgCategory(t.category);
@@ -1894,7 +1912,8 @@ function renderDlgSecs() {
     <input type="text" data-f="name" value="${esc(x.name)}" placeholder="ex.: Personagem Cuca">
     <input type="date" data-f="a" value="${fromIdx(x.a)}" min="${mn}" max="${mx}" title="Início da seção">
     <input type="date" data-f="b" value="${fromIdx(x.b)}" min="${mn}" max="${mx}" title="Fim da seção">
-    <button type="button" data-f="del" title="Remover a seção">✕</button></div>`).join('') || '<div class="empty" style="font-size:12px;color:var(--muted)">Nenhuma seção.</div>';
+    <button type="button" data-f="del" title="Remover a seção">✕</button>
+    <div class="secmem">${dlgMembers.size ? state.members.filter(m => dlgMembers.has(m.id)).map(m => `<span class="chip sm${x.members.includes(m.id) ? ' on' : ''}" data-smid="${m.id}" title="${x.members.includes(m.id) ? 'Remover' : 'Adicionar'} ${esc(m.name)} nesta seção"><span class="dot" style="background:${m.color};color:${textOn(m.color)}">${esc(initials(m.name))}</span>${esc(m.name)}</span>`).join('') : '<span class="muted">Escolha os membros da tarefa para atribuí-los às seções.</span>'}</div></div>`).join('') || '<div class="empty" style="font-size:12px;color:var(--muted)">Nenhuma seção.</div>';
   form.progress.disabled = dlgSecs.length > 0;
   if (dlgSecs.length) { const tot = dlgSecs.reduce((a, x) => a + x.b - x.a + 1, 0), ok = dlgSecs.filter(x => x.done).reduce((a, x) => a + x.b - x.a + 1, 0), v = tot ? Math.round(ok / tot * 100) : 0; form.progress.value = v; $('#progVal').textContent = v + '% (pelas seções, proporcional à duração)'; }
   else $('#progVal').textContent = form.progress.value + '%';
@@ -1915,13 +1934,15 @@ $('#dlgSecs').addEventListener('change', e => {
   }
 });
 $('#dlgSecs').addEventListener('click', e => {
+  const ch = e.target.closest('[data-smid]');
+  if (ch) { const x = dlgSecs[+ch.closest('.secrow').dataset.k], id = ch.dataset.smid; x.members = x.members.includes(id) ? x.members.filter(y => y !== id) : [...x.members, id]; renderDlgSecs(); return; }
   const b = e.target.closest('[data-f=del]'); if (!b) return;
   dlgSecs.splice(+b.closest('.secrow').dataset.k, 1); renderDlgSecs();
 });
 $('#dlgAddSec').onclick = () => {
   const p = dlgPeriod(); if (!p) return;
   const last = dlgSecs.length ? Math.max(...dlgSecs.map(x => x.b)) : p.s - 1, a = Math.min(last + 1, p.e);
-  dlgSecs.push({ id: uid(), name: `Seção ${dlgSecs.length + 1}`, a, b: a, done: false, deps: [] });
+  dlgSecs.push({ id: uid(), name: `Seção ${dlgSecs.length + 1}`, a, b: a, done: false, deps: [], members: [] });
   renderDlgSecs();
   const inp = $('#dlgSecs').querySelector('.secrow:last-child [data-f=name]'); if (inp) { inp.focus(); inp.select(); }
 };
@@ -1951,6 +1972,7 @@ $('#dlgMembers').addEventListener('click', e => {
     mutate(() => state.members.push(m)); dlgMembers.add(m.id); renderDlgMembers(); return;
   }
   const id = c.dataset.mid; dlgMembers.has(id) ? dlgMembers.delete(id) : dlgMembers.add(id); renderDlgMembers();
+  dlgSecs.forEach(x => x.members = x.members.filter(y => dlgMembers.has(y))); renderDlgSecs();
 });
 form.start.addEventListener('change', () => { const s = toIdx(form.start.value); if (Number.isFinite(s)) form.end.value = fromIdx(s + (+form.duration.value || 1) - 1); });
 form.end.addEventListener('change', () => {
@@ -1982,7 +2004,8 @@ form.addEventListener('submit', e => {
     t.deps = [...deps, ...t.deps.filter(d => !task(d))]; t.notes = form.notes.value; // mantém as dependências de seções
     t.category = category(form.category.value) ? form.category.value : null;
     const ts = Number.isFinite(s) ? s : t.start;
-    t.sections = dlgSecs.map(x => ({ id: x.id, name: x.name.trim() || 'Seção', off: x.a - ts, dur: x.b - x.a + 1, done: x.done, deps: x.deps || [] }));
+    t.sections = dlgSecs.map(x => ({ id: x.id, name: x.name.trim() || 'Seção', off: x.a - ts, dur: x.b - x.a + 1, done: x.done, deps: x.deps || [], members: x.members.filter(y => dlgMembers.has(y)) }));
+    t.hideSecs = !form.showSecs.checked;
   });
   if (Number.isFinite(s) && task(dlgTaskId).start > s) toast('Início ajustado para depois das dependências');
   taskDlg.close();
