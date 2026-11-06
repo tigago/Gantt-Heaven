@@ -259,6 +259,11 @@ button.income-btn:hover{background:#eaf7ee}
 .ft.disb tr.g-cat td,.ft.disb tr.g-cat td *{font-weight:700}
 .ft.disb tr.g-cat td.dc small{color:#3c4458}
 .ft.disb td.dc.ed{padding:3px 6px;height:auto}
+.ft.disb .dname{display:flex;align-items:center;gap:6px}
+.ft.disb .dname span{overflow:hidden;text-overflow:ellipsis}
+.ft.disb .dname button{margin-left:auto;flex:none;padding:2px 7px;font-size:11px;border:1px solid var(--line);background:#fff;border-radius:6px;color:var(--muted);opacity:0}
+.ft.disb tr.item:hover .dname button,.ft.disb .dname button:focus{opacity:1}
+.ft.disb .dname button:hover{color:var(--text);border-color:#c9cedb}
 .ft.disb td.dc input.fi.dp{min-width:0;width:100%;font-size:11.5px;padding:1px 5px;margin-top:2px;text-align:right;border-color:#e3e6ee;background:#fff;color:#3c4458;font-variant-numeric:tabular-nums}
 .ft.disb td.dc input.fi.dp:hover{border-color:#c9cedb}
 .ft.disb td.dc.empty.ed input.fi.dp{border-style:dashed}
@@ -273,9 +278,6 @@ dialog.xwide{width:min(940px,96vw)}
 .seg button.on{background:#fff;color:var(--text);box-shadow:0 1px 3px rgba(20,25,40,.15)}
 #txDir button.on[data-v=out],#itemType button.on[data-v=expense],#disbType button.on[data-v=expense]{color:#c93c37}
 #txDir button.on[data-v=in],#itemType button.on[data-v=income],#disbType button.on[data-v=income]{color:#1a7f37}
-.distrib{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:8px}
-.distrib input{border:1px solid var(--line);border-radius:6px;padding:4px 6px;font:inherit;color:var(--text)}
-.distrib button{padding:4px 10px;font-size:12px}
 .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:6px;max-height:260px;overflow:auto;padding:2px}
 .mcell{display:flex !important;flex-direction:column !important;gap:2px !important;font-size:11px !important}
 .mcell.cur span{color:var(--accent)}
@@ -479,8 +481,6 @@ dialog.xwide{width:min(940px,96vw)}
     </div>
     <div>
       <span class="lbl">Previsão mensal de <span id="itemWord">saída</span></span>
-      <div class="distrib">Distribuir a quantia igualmente de <input type="month" name="dFrom"> até <input type="month" name="dTo">
-        <button type="button" id="itemDistrib">Distribuir</button><button type="button" id="itemClear">Limpar</button></div>
       <div id="itemMonths" class="mgrid"></div>
       <div id="itemSum" class="muted"></div>
     </div>
@@ -524,6 +524,16 @@ dialog.xwide{width:min(940px,96vw)}
       <button type="button" id="txAgain" title="Salva e mantém o diálogo aberto para lançar outra">Salvar e nova</button>
       <button type="submit" class="primary">Salvar</button>
     </div>
+  </form>
+</dialog>
+
+<dialog id="distDlg">
+  <form class="dlg" id="distForm" method="dialog">
+    <h2 id="distTitle">Distribuir igualmente</h2>
+    <label>Quantia a distribuir (R$)<input type="text" name="amount" inputmode="decimal"></label>
+    <div class="grid2"><label>Do mês<input type="month" name="dFrom"></label><label>Até o mês<input type="month" name="dTo"></label></div>
+    <div id="distInfo" class="muted" style="font-size:12px"></div>
+    <div class="actions"><button type="button" class="danger" id="distClear">Limpar previsão</button><span style="flex:1"></span><button type="button" id="distCancel">Cancelar</button><button type="submit" class="primary">Distribuir</button></div>
   </form>
 </dialog>
 
@@ -2323,7 +2333,7 @@ function disbHTML(opts = {}) {
       const r = rm.get(i.id) || { total: 0, m: {} };
       months.forEach(m => { cp[m] = (cp[m] || 0) + (i.plan[m] || 0); cr[m] = (cr[m] || 0) + (r.m[m] || 0); });
       cB += i.amount; cR += r.total;
-      rows += `<tr class="item"><td class="stk" title="${esc(i.name)}">${esc(i.name)}</td>${months.map(m => dcell(r.m[m] || 0, i.plan[m] || 0, m === cur, opts.print ? null : { id: i.id, m })).join('')}${dcell(r.total, i.amount, false).replace('class="dc', 'class="dc tot')}${distDiffCell(i)}</tr>`;
+      rows += `<tr class="item" data-id="${i.id}"><td class="stk" title="${esc(i.name)}">${opts.print ? esc(i.name) : `<div class="dname"><span>${esc(i.name)}</span><button data-act="distrib" title="Distribuir a quantia igualmente entre meses">⚖ Distribuir</button></div>`}</td>${months.map(m => dcell(r.m[m] || 0, i.plan[m] || 0, m === cur, opts.print ? null : { id: i.id, m })).join('')}${dcell(r.total, i.amount, false).replace('class="dc', 'class="dc tot')}${distDiffCell(i)}</tr>`;
     }
     h += `<tr class="g-cat"><td class="stk">${g.cat ? esc(g.cat) : '<i>Sem categoria</i>'}</td>${months.map(m => dcell(round2(cr[m] || 0), round2(cp[m] || 0), m === cur)).join('')}${dcell(round2(cR), round2(cB), false).replace('class="dc', 'class="dc tot')}<td></td></tr>` + rows;
     months.forEach(m => { totP[m] = (totP[m] || 0) + (cp[m] || 0); totR[m] = (totR[m] || 0) + (cr[m] || 0); });
@@ -2363,6 +2373,7 @@ finEl.addEventListener('click', e => {
     case 'add-expense': openItemDlg(null, 'expense'); break;
     case 'add-income': openItemDlg(null, 'income'); break;
     case 'edit-item': openItemDlg(id); break;
+    case 'distrib': openDistDlg(id); break;
     case 'del-item': deleteItem(id); break;
     case 'auto-period': fmutate(() => state.finance.months = null); break;
     case 'add-tx': openTxDlg(null); break;
@@ -2471,7 +2482,6 @@ function openItemDlg(id, type) {
   const p = finPeriod();
   const months = [...new Set([...monthList(p.start, p.end), ...Object.keys(it ? it.plan : {})])].sort();
   $('#itemMonths').innerHTML = months.map(m => `<label class="mcell${m === todayYM() ? ' cur' : ''}"><span>${ymLabel(m)}</span><input type="text" data-m="${m}" value="${it ? moneyIn(it.plan[m]) : ''}" inputmode="decimal" placeholder="0"></label>`).join('');
-  itemForm.dFrom.value = p.start; itemForm.dTo.value = p.end;
   $('#itemDelete').style.display = it ? '' : 'none';
   updateItemSum();
   itemDlg.showModal(); itemForm.name.focus();
@@ -2492,21 +2502,49 @@ function updateItemSum() {
 $('#itemType').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) setItemType(b.dataset.v); });
 $('#itemMonths').addEventListener('input', updateItemSum);
 itemForm.amount.addEventListener('input', updateItemSum);
-$('#itemDistrib').onclick = () => {
-  const amt = parseMoney(itemForm.amount.value);
-  if (!Number.isFinite(amt) || amt <= 0) { toast('Informe a quantia total primeiro'); itemForm.amount.focus(); return; }
-  let a = itemForm.dFrom.value, b = itemForm.dTo.value; if (!isYM(a) || !isYM(b)) return; if (a > b) [a, b] = [b, a];
-  const ms = monthList(a, b), cents = Math.round(amt * 100), each = Math.floor(cents / ms.length);
-  // garante que existam campos para os meses escolhidos
-  const box = $('#itemMonths');
-  ms.forEach(m => { if (!box.querySelector(`[data-m="${m}"]`)) box.insertAdjacentHTML('beforeend', `<label class="mcell"><span>${ymLabel(m)}</span><input type="text" data-m="${m}" inputmode="decimal" placeholder="0"></label>`); });
-  box.querySelectorAll('input').forEach(i => {
-    const k = ms.indexOf(i.dataset.m);
-    i.value = k < 0 ? '' : moneyIn((each + (k === ms.length - 1 ? cents - each * ms.length : 0)) / 100);
-  });
-  updateItemSum();
+// ---------- Diálogo: distribuir igualmente (Desembolso) ----------
+const distDlg = $('#distDlg'), distForm = $('#distForm');
+let distItemId = null;
+// divide a quantia em parcelas iguais (centavos que sobram vão para o último mês)
+function evenPlan(amount, ms) {
+  const cents = Math.round(amount * 100), each = Math.floor(cents / ms.length), plan = {};
+  ms.forEach((m, k) => { const v = (each + (k === ms.length - 1 ? cents - each * ms.length : 0)) / 100; if (v) plan[m] = v; });
+  return plan;
+}
+function openDistDlg(id) {
+  const it = finItem(id); if (!it) return;
+  distItemId = id;
+  const keys = Object.keys(it.plan).filter(m => it.plan[m]).sort(), p = finPeriod();
+  $('#distTitle').textContent = `Distribuir igualmente — ${it.name}`;
+  distForm.amount.value = moneyIn(it.amount);
+  distForm.dFrom.value = keys[0] || p.start; distForm.dTo.value = keys[keys.length - 1] || p.end;
+  updateDistInfo(); distDlg.showModal(); distForm.dFrom.focus();
+}
+function distRange() {
+  let a = distForm.dFrom.value, b = distForm.dTo.value; if (!isYM(a) || !isYM(b)) return null; if (a > b) [a, b] = [b, a];
+  return monthList(a, b);
+}
+function updateDistInfo() {
+  const ms = distRange(), amt = parseMoney(distForm.amount.value), el = $('#distInfo');
+  if (!ms || !Number.isFinite(amt) || amt <= 0) { el.textContent = 'Informe a quantia e os meses.'; return; }
+  const plan = evenPlan(amt, ms), vals = Object.values(plan);
+  el.textContent = `${ms.length} mês(es) de ${money(vals[0] || 0)}${vals.length > 1 && vals[vals.length - 1] !== vals[0] ? ` (o último, ${money(vals[vals.length - 1])})` : ''} · a previsão dos outros meses será apagada`;
+}
+distForm.addEventListener('input', updateDistInfo);
+$('#distCancel').onclick = () => distDlg.close();
+$('#distClear').onclick = () => {
+  const it = finItem(distItemId); if (!it) return;
+  if (!confirm(`Apagar toda a previsão mensal de "${it.name}"?`)) return;
+  fmutate(() => it.plan = {}); distDlg.close();
 };
-$('#itemClear').onclick = () => { $('#itemMonths').querySelectorAll('input').forEach(i => i.value = ''); updateItemSum(); };
+distForm.addEventListener('submit', e => {
+  e.preventDefault();
+  const it = finItem(distItemId), ms = distRange(), amt = parseMoney(distForm.amount.value); if (!it || !ms) return;
+  if (!Number.isFinite(amt) || amt <= 0) { toast('Quantia inválida — use, por exemplo, 1.234,56'); distForm.amount.focus(); return; }
+  fmutate(() => { it.amount = amt; it.plan = evenPlan(amt, ms); });
+  toast(`${money(amt)} distribuídos em ${ms.length} mês(es)`);
+  distDlg.close();
+});
 $('#itemCancel').onclick = () => itemDlg.close();
 $('#itemDelete').onclick = () => { const id = dlgItem.id; itemDlg.close(); deleteItem(id); };
 itemForm.addEventListener('submit', e => {
