@@ -503,7 +503,8 @@ dialog.xwide{width:min(940px,96vw)}
     <label class="check"><input type="checkbox" name="useFilt"> Aplicar os filtros atuais do cronograma <span id="pdfFiltInfo" style="color:var(--muted);font-size:12px"></span></label>
     <label class="check"><input type="checkbox" name="showMarks"> Mostrar períodos destacados <span id="pdfMarksInfo" style="color:var(--muted);font-size:12px"></span></label>
     <label class="check"><input type="checkbox" name="showToday"> Mostrar a linha de "hoje"</label>
-    <label class="check"><input type="checkbox" name="showProgress"> Mostrar o progresso das tarefas (sombra nas barras)</label>
+    <label class="check"><input type="checkbox" name="showProgress"> Mostrar o progresso (sombra nas barras e ✓ das seções concluídas)</label>
+    <label class="check"><input type="checkbox" name="withSecs"> Incluir as seções das tarefas <span style="color:var(--muted);font-size:12px">(as que estão visíveis no cronograma)</span></label>
     <div class="grid2">
       <label>Tamanho do papel<select name="paper">
         <option value="auto" title="A4; usa página única do tamanho do diagrama se ele for grande demais">Automático</option>
@@ -1152,10 +1153,11 @@ function renderChart() {
     // cores: membros da seção (ou, se não tiver, os da tarefa)
     const ms = ((sec.members || []).length ? sec.members : t.members).map(member).filter(Boolean), color = ms.length ? ms[0].color : '#9aa3b5';
     const SH = 14, x = (t.start + sec.off - range.start) * dayW, w = sec.dur * dayW, y = i * ROW + (ROW - SH) / 2;
-    const lbl = fitText((sec.done ? '✓ ' : '') + sec.name, w - 10, '600 11px "Segoe UI", system-ui, sans-serif');
-    const fill = sec.done ? '#c9cedb' : memberFill(ms, `sg_${sec.id}`, defs), multi = !sec.done && ms.length > 1;
-    secBars += `<g class="secbar${sec.done ? ' done' : ''}" data-tid="${t.id}" data-sec="${sec.id}"><rect x="${x + 1}" y="${y}" width="${Math.max(w - 2, 2)}" height="${SH}" rx="${SH / 2}" fill="${fill}" fill-opacity="${sec.done ? 1 : .7}" stroke="${color}"/>`
-      + (lbl ? `<text class="${multi ? 'halo' : ''}" x="${x + 7}" y="${y + 11}" style="fill:${sec.done ? '#5b6378' : multi ? '#fff' : textOn(color)}">${esc(lbl)}</text>` : '')
+    const done = sec.done && showProgress(); // no PDF sem progresso, a seção concluída aparece como as outras
+    const lbl = fitText((done ? '✓ ' : '') + sec.name, w - 10, '600 11px "Segoe UI", system-ui, sans-serif');
+    const fill = done ? '#c9cedb' : memberFill(ms, `sg_${sec.id}`, defs), multi = !done && ms.length > 1;
+    secBars += `<g class="secbar${done ? ' done' : ''}" data-tid="${t.id}" data-sec="${sec.id}"><rect x="${x + 1}" y="${y}" width="${Math.max(w - 2, 2)}" height="${SH}" rx="${SH / 2}" fill="${fill}" fill-opacity="${done ? 1 : .7}" stroke="${color}"/>`
+      + (lbl ? `<text class="${multi ? 'halo' : ''}" x="${x + 7}" y="${y + 11}" style="fill:${done ? '#5b6378' : multi ? '#fff' : textOn(color)}">${esc(lbl)}</text>` : '')
       + `<title>${esc(sec.name)} · ${fmtLong(t.start + sec.off)} → ${fmtLong(t.start + sec.off + sec.dur - 1)}${sec.done ? ' · concluída' : ''} — clique para ${sec.done ? 'desmarcar' : 'marcar como concluída'}; arraste para mover</title>`
       + `<rect class="shandle" data-h="l" x="${x}" y="${y}" width="${Math.min(8, w / 3)}" height="${SH}"><title>Arraste para mudar o início da seção</title></rect>`
       + `<rect class="shandle" data-h="r" x="${x + w - Math.min(8, w / 3)}" y="${y}" width="${Math.min(8, w / 3)}" height="${SH}"><title>Arraste para mudar o fim da seção</title></rect>`
@@ -1338,14 +1340,15 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
   const allTasks = state.tasks, allMarks = state.marks;
   state.tasks = tasks; // só as tarefas exportadas (dependências para tarefas fora do período são omitidas)
   if (!showMarks) state.marks = [];
-  noSections = true; exportShow = { today: opts.today !== false, progress: opts.progress !== false };
+  noSections = opts.sections === false; exportShow = { today: opts.today !== false, progress: opts.progress !== false };
+  const rowList = rowModel(); // linhas exportadas: tarefas e, se incluídas, as seções visíveis de cada uma
   let tl = '', ch = '';
   if (withChart) try { renderTimeline(); renderChart(); tl = timelineEl.innerHTML; ch = chartEl.innerHTML; } finally { state.tasks = allTasks; state.marks = allMarks; noSections = false; exportShow = null; }
   else { state.tasks = allTasks; state.marks = allMarks; noSections = false; exportShow = null; }
   ({ range, dayW, selectedId, highlightMember, highlightCategory } = saved);
   render();
 
-  const W = LW + (withChart ? days * dw : 0), H = TOP + HEAD + tasks.length * ROW + 4;
+  const W = LW + (withChart ? days * dw : 0), H = TOP + HEAD + rowList.length * ROW + 4;
   const z = Math.min(1, PW / W, PH / H);
   let page, zoom;
   if (!withChart && paper !== 'fit') { page = pageSize; zoom = Math.min(1, PW / W); } // só a tabela: segue em várias páginas se precisar
@@ -1354,7 +1357,12 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
   else { page = `${Math.ceil(W + 76)}px ${Math.ceil(H + 76)}px`; zoom = 1; } // projeto grande: página única do tamanho do diagrama
 
   const strip = !cols.some(c => c.key === 'category');
-  const rows = tasks.map((t, i) => { const c = category(t.category); return `<div class="prow"${c ? ` style="background:${c.color}45"` : ''}>${cols.map(k => pdfCell(k.key, t, allTasks.indexOf(t), strip)).join('')}</div>`; }).join('');
+  const showDone = opts.progress !== false;
+  const rows = rowList.map(({ t, s: sec }) => {
+    const c = category(t.category);
+    if (sec) return `<div class="prow psec${sec.done && showDone ? ' done' : ''}"${c ? ` style="background:${c.color}26"` : ''}>${cols.map(k => pdfSecCell(k.key, t, sec, showDone)).join('')}</div>`;
+    return `<div class="prow"${c ? ` style="background:${c.color}45"` : ''}>${cols.map(k => pdfCell(k.key, t, allTasks.indexOf(t), strip)).join('')}</div>`;
+  }).join('');
   const headCells = cols.map(c => `<span class="${c.key === 'duration' ? 'pr' : ''}">${esc(c.label)}</span>`).join('');
   const legend = state.members.map(m => `<span class="pchip"><span class="dot" style="background:${m.color}"></span>${esc(m.name)}</span>`).join('')
     + state.categories.map(c => `<span class="pchip"><span class="dot" style="background:${c.color}55;border-radius:3px;width:12px;height:12px"></span>${esc(c.name)}</span>`).join('');
@@ -1375,7 +1383,10 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
     .pcorner .prow{height:28px;border:none;color:#6b7385;font-size:10px;font-weight:600;text-transform:uppercase}
     .ptl{height:${HEAD}px;border-bottom:1px solid #e4e7ef;overflow:hidden}
     .plist{border-right:1px solid #e4e7ef}
-    .pchart{height:${tasks.length * ROW}px;overflow:hidden}
+    .pchart{height:${rowList.length * ROW}px;overflow:hidden}
+    .prow.psec .pname{padding-left:16px;font-weight:400;font-size:11.5px;color:#3c4458}
+    .prow.psec.done .pname{text-decoration:line-through;color:#6b7385}
+    .prow.psec .pn{color:#1a7f37;text-align:center}
     .prow{display:grid;grid-template-columns:${cols.map(c => c.w + 'px').join(' ')};gap:0 4px;align-items:center;height:${ROW}px;border-bottom:1px solid #d5dae5;font-size:12px;padding:0 6px;width:100%}
     .pcat{justify-self:start;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1.5px solid;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600}
     .pmuted{color:#b4bacb}
@@ -1424,6 +1435,19 @@ function renderColPicker(el, cols, selected) {
 }
 const pickedCols = el => [...el.querySelectorAll('input:checked')].map(i => i.value);
 
+// célula da tabela do PDF para uma linha de seção
+function pdfSecCell(key, t, sec, showDone) {
+  const a = t.start + sec.off, b = a + sec.dur - 1;
+  switch (key) {
+    case 'num': return `<span class="pn">${sec.done && showDone ? '✓' : ''}</span>`;
+    case 'name': return `<span class="pname">${esc(sec.name)}</span>`;
+    case 'start': return `<span>${fmt(a)}</span>`;
+    case 'end': return `<span>${fmt(b)}</span>`;
+    case 'duration': return `<span class="pr">${sec.dur}</span>`;
+    case 'team': return `<span class="avs">${avatarsHTML(sec.members || [])}</span>`;
+  }
+  return '<span></span>';
+}
 function pdfCell(key, t, i, showStrip) {
   const c = category(t.category);
   switch (key) {
@@ -1561,7 +1585,7 @@ function exportPDF() {
   $('#pdfFiltInfo').textContent = fdesc ? `(${fdesc})` : '(nenhum filtro ativo)';
   updatePdfInfo();
   pdfForm.showMarks.checked = prefs.pdfMarks && state.marks.length > 0;
-  pdfForm.showToday.checked = prefs.pdfToday !== false; pdfForm.showProgress.checked = prefs.pdfProgress !== false;
+  pdfForm.showToday.checked = prefs.pdfToday !== false; pdfForm.showProgress.checked = prefs.pdfProgress !== false; pdfForm.withSecs.checked = prefs.pdfSecs !== false;
   pdfForm.showMarks.disabled = !state.marks.length;
   $('#pdfMarksInfo').textContent = state.marks.length ? `(${state.marks.length})` : '(nenhum no projeto)';
   renderColPicker($('#pdfCols'), TABLE_COLS, prefs.pdfCols);
@@ -1594,9 +1618,9 @@ pdfForm.addEventListener('submit', e => {
   pdfDlg.close();
   prefs.pdfTable = pdfForm.withTable.checked; prefs.pdfCols = cols; prefs.pdfChart = pdfForm.withChart.checked; prefs.pdfPaper = pdfForm.paper.value; prefs.pdfOrient = pdfForm.orient.value;
   if (state.marks.length) prefs.pdfMarks = pdfForm.showMarks.checked;
-  prefs.pdfToday = pdfForm.showToday.checked; prefs.pdfProgress = pdfForm.showProgress.checked;
+  prefs.pdfToday = pdfForm.showToday.checked; prefs.pdfProgress = pdfForm.showProgress.checked; prefs.pdfSecs = pdfForm.withSecs.checked;
   savePrefs();
-  printPDF(a, b, pdfForm.onlyIn.checked, { cols: pdfForm.withTable.checked ? cols : [], marks: pdfForm.showMarks.checked, filters: pdfForm.useFilt.checked && !pdfForm.useFilt.disabled, chart: pdfForm.withChart.checked, paper: pdfForm.paper.value, orient: pdfForm.orient.value, today: pdfForm.showToday.checked, progress: pdfForm.showProgress.checked });
+  printPDF(a, b, pdfForm.onlyIn.checked, { cols: pdfForm.withTable.checked ? cols : [], marks: pdfForm.showMarks.checked, filters: pdfForm.useFilt.checked && !pdfForm.useFilt.disabled, chart: pdfForm.withChart.checked, paper: pdfForm.paper.value, orient: pdfForm.orient.value, today: pdfForm.showToday.checked, progress: pdfForm.showProgress.checked, sections: pdfForm.withSecs.checked });
 });
 
 function printPDF(from, to, onlyIn, opts) {
