@@ -258,7 +258,13 @@ button.income-btn:hover{background:#eaf7ee}
 .ft.disb tr.g-cat td.dc .dtop b{color:inherit}
 .ft.disb tr.g-cat td,.ft.disb tr.g-cat td *{font-weight:700}
 .ft.disb tr.g-cat td.dc small{color:#3c4458}
-.ft.disb td.dc.ed{padding:3px 6px;height:auto}
+.ft.disb td.dc.ed{padding:3px 6px;height:auto;position:relative}
+.ft.disb .hbtn{display:none;position:absolute;top:2px;right:3px;z-index:1;padding:1px 6px;font-size:10.5px;border:1px solid #c9cedb;background:#fff;border-radius:6px;color:var(--accent);box-shadow:0 1px 3px rgba(0,0,0,.12);cursor:pointer}
+.ft.disb td.dc.ed:hover .hbtn{display:block}
+.ft.disb .hbtn:hover{background:#eef2ff}
+.ft.disb .dname .hbtn{position:static;flex:none;box-shadow:none}
+.ft.disb td.dn:hover .dname .hbtn{display:inline-block}
+.ft.disb td.dn:hover .dname b.tp{display:none}
 .ft.disb .dname{display:flex;align-items:center;gap:6px}
 .ft.disb .dname span{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
 .ft.disb td.dn{height:auto;padding:4px 8px}
@@ -2193,7 +2199,7 @@ function txList(opts = {}) {
 function historyHTML(opts = {}) {
   const f = state.finance, RO = !!opts.print;
   const all = txSorted();
-  const months = [...new Set(all.map(t => ymOf(t.date)))];
+  const months = [...new Set([...all.map(t => ymOf(t.date)), finFilter.month].filter(Boolean))].sort();
   const list = txList(opts);
   const cols = HIST_COLS.filter(c => !opts.cols || opts.cols.includes(c.key));
   const out = round2(list.filter(t => t.direction === 'out').reduce((a, t) => a + t.amount, 0));
@@ -2281,27 +2287,30 @@ function balances(months) {
   const plan = months.map(m => acc = round2(acc + planOf('income', m) - planOf('expense', m)));
   return { real, plan };
 }
+// botão (aparece ao passar o mouse) que abre o Histórico de Pagamento filtrado pelo item e, se houver, pelo mês
+const histBtn = m => `<button class="hbtn" data-act="go-hist"${m ? ` data-m="${m}"` : ''} title="Ver no Histórico de Pagamento${m ? ` (${ymLong(m)})` : ''}">🔎 Histórico</button>`;
 // célula do nome no desembolso, com a % do orçamento total realizada (realizado / orçamento)
-function nameCell(label, real, budget, extra = '', title = '') {
+function nameCell(label, real, budget, extra = '', title = '', hist = false) {
   let pct = '', cls = 'none', bar = 0;
   if (budget) {
     const diff = round2(real - budget);
     cls = diff > 0 ? 'over' : diff === 0 ? 'done' : real > 0 ? 'part' : 'none';
     pct = pctLabel(real, budget) + '%'; bar = clamp(real / budget * 100, 0, 100);
   } else if (real) { cls = 'unplanned'; pct = 'sem orçamento'; }
-  return `<td class="stk dn ${cls}"${title ? ` title="${title}"` : ''}><div class="dname"><span>${label}</span>${extra}<b class="tp">${pct}</b></div><div class="dsub"><small>${moneyShort(real)} / ${moneyShort(budget)}</small><div class="dbar"><i style="width:${bar}%"></i></div></div></td>`;
+  return `<td class="stk dn ${cls}"${title ? ` title="${title}"` : ''}><div class="dname"><span>${label}</span>${extra}<b class="tp">${pct}</b>${hist && (real || budget) ? histBtn('') : ''}</div><div class="dsub"><small>${moneyShort(real)} / ${moneyShort(budget)}</small><div class="dbar"><i style="width:${bar}%"></i></div></div></td>`;
 }
 // célula do desembolso; com edit = { id, m } o previsto do mês é editável na própria célula
 function dcell(real, prev, cur, edit) {
   const c = cur ? ' cur' : '';
   const inp = edit ? `<input class="fi money dp" data-k="p:${edit.id}:${edit.m}" value="${moneyIn(prev)}" inputmode="decimal" placeholder="previsto" title="Previsto para ${ymLabel(edit.m)} — edite aqui">` : '';
+  const hb = edit && (real || prev) ? histBtn(edit.m) : '';
   if (!prev && !real) return edit ? `<td class="dc ed empty${c}">${inp}</td>` : `<td class="dc empty${c}">·</td>`;
-  if (!prev) return `<td class="dc${edit ? ' ed' : ''} unplanned${c}" title="${real > 0 ? 'Valor realizado sem previsão neste mês' : 'Estorno'}"><div class="dtop"><b>${moneyShort(real)}</b>${edit ? '<small>não previsto</small>' : ''}</div>${edit ? inp : '<small>não previsto</small>'}</td>`;
+  if (!prev) return `<td class="dc${edit ? ' ed' : ''} unplanned${c}" title="${real > 0 ? 'Valor realizado sem previsão neste mês' : 'Estorno'}">${hb}<div class="dtop"><b>${moneyShort(real)}</b>${edit ? '<small>não previsto</small>' : ''}</div>${edit ? inp : '<small>não previsto</small>'}</td>`;
   const p = real / prev * 100, diff = round2(real - prev);
   const cls = diff > 0 ? 'over' : diff === 0 ? 'done' : real > 0 ? 'part' : 'none';
   const pt = pctLabel(real, prev);
   const info = edit ? `<small title="Realizado">${moneyShort(real)}</small>` : `<small>${moneyShort(real)} / ${moneyShort(prev)}</small>`;
-  return `<td class="dc${edit ? ' ed' : ''} ${cls}${c}" title="Realizado ${money(real)} de ${money(prev)} previstos (${pt}%)"><div class="dtop"><b>${pt}%</b>${info}</div>${inp}<div class="dbar"><i style="width:${clamp(p, 0, 100)}%"></i></div></td>`;
+  return `<td class="dc${edit ? ' ed' : ''} ${cls}${c}" title="Realizado ${money(real)} de ${money(prev)} previstos (${pt}%)">${hb}<div class="dtop"><b>${pt}%</b>${info}</div>${inp}<div class="dbar"><i style="width:${clamp(p, 0, 100)}%"></i></div></td>`;
 }
 function disbHTML(opts = {}) {
   const dt = opts.type || disbType;
@@ -2340,7 +2349,7 @@ function disbHTML(opts = {}) {
       const r = rm.get(i.id) || { total: 0, m: {} };
       months.forEach(m => { cp[m] = (cp[m] || 0) + (i.plan[m] || 0); cr[m] = (cr[m] || 0) + (r.m[m] || 0); });
       cB += i.amount; cR += r.total;
-      rows += `<tr class="item" data-id="${i.id}">${nameCell(esc(i.name), r.total, i.amount, opts.print ? '' : '<button data-act="distrib" title="Distribuir a quantia igualmente entre meses">⚖ Distribuir</button>', esc(i.name))}${months.map(m => dcell(r.m[m] || 0, i.plan[m] || 0, m === cur, opts.print ? null : { id: i.id, m })).join('')}${distDiffCell(i)}</tr>`;
+      rows += `<tr class="item" data-id="${i.id}">${nameCell(esc(i.name), r.total, i.amount, opts.print ? '' : '<button data-act="distrib" title="Distribuir a quantia igualmente entre meses">⚖ Distribuir</button>', esc(i.name), !opts.print)}${months.map(m => dcell(r.m[m] || 0, i.plan[m] || 0, m === cur, opts.print ? null : { id: i.id, m })).join('')}${distDiffCell(i)}</tr>`;
     }
     h += `<tr class="g-cat">${nameCell(g.cat ? esc(g.cat) : '<i>Sem categoria</i>', round2(cR), round2(cB))}${months.map(m => dcell(round2(cr[m] || 0), round2(cp[m] || 0), m === cur)).join('')}<td></td></tr>` + rows;
     months.forEach(m => { totP[m] = (totP[m] || 0) + (cp[m] || 0); totR[m] = (totR[m] || 0) + (cr[m] || 0); });
@@ -2381,6 +2390,10 @@ finEl.addEventListener('click', e => {
     case 'add-income': openItemDlg(null, 'income'); break;
     case 'edit-item': openItemDlg(id); break;
     case 'distrib': openDistDlg(id); break;
+    case 'go-hist': // Desembolso → Histórico de Pagamento com filtros de item e mês
+      finFilter = { month: a.dataset.m || '', item: id || '', rec: '', dir: '' };
+      finSub = 'history'; prefs.finSub = finSub; savePrefs(); render();
+      finEl.querySelector('.fin-scroll')?.scrollTo(0, 0); break;
     case 'del-item': deleteItem(id); break;
     case 'auto-period': fmutate(() => state.finance.months = null); break;
     case 'add-tx': openTxDlg(null); break;
