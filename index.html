@@ -545,7 +545,7 @@ dialog.xwide{width:min(940px,96vw)}
     <div id="fePeriodM" class="grid2"><label>Do mês<input type="month" name="mFrom"></label><label>Até o mês<input type="month" name="mTo"></label></div>
     <div id="fePeriodD" class="grid2"><label>De<input type="date" name="dFrom"></label><label>Até<input type="date" name="dTo"></label></div>
     <div id="feTypes"><span class="lbl">Incluir</span><div style="display:flex;gap:16px"><label class="check"><input type="checkbox" name="inc"> ↑ Receitas</label><label class="check"><input type="checkbox" name="exp"> ↓ Gastos</label></div></div>
-    <label class="check" id="feBalWrap"><input type="checkbox" name="bal"> Linhas de saldo previsto (receitas − gastos do mês e acumulado)</label>
+    <label class="check" id="feBalWrap"><input type="checkbox" name="bal"> Linhas de saldo acumulado (real, pelo histórico, e previsto)</label>
     <label class="check" id="feFiltWrap"><input type="checkbox" name="filt"> Aplicar os filtros atuais da tela (mês, serviço, destinatário, tipo)</label>
     <div id="feColsWrap"><span class="lbl">Colunas</span><div id="feCols" class="colpick"></div></div>
     <label id="feSepWrap">Separador<select name="sep"><option value=";">Ponto e vírgula ( ; ) — Excel em português</option><option value=",">Vírgula ( , )</option><option value="tab">Tabulação</option></select></label>
@@ -2264,6 +2264,16 @@ function pctLabel(real, prev) {
   if (v === 0 && real > 0) v = 0.1;
   return PCT1.format(v);
 }
+// saldos acumulados por mês: real (histórico de pagamento, até o fim do mês; vazio nos meses futuros) e previsto
+function balances(months) {
+  const f = state.finance, cur = todayYM();
+  const real = months.map(m => m > cur ? null : round2(f.transactions.filter(t => ymOf(t.date) <= m).reduce((a, t) => a + (t.direction === 'in' ? t.amount : -t.amount), 0)));
+  const planOf = (type, m) => f.items.filter(i => i.type === type).reduce((a, i) => a + (i.plan[m] || 0), 0);
+  const before = f.items.reduce((a, i) => a + Object.entries(i.plan).filter(([m]) => m < months[0]).reduce((b, [, v]) => b + (i.type === 'income' ? v : -v), 0), 0);
+  let acc = before;
+  const plan = months.map(m => acc = round2(acc + planOf('income', m) - planOf('expense', m)));
+  return { real, plan };
+}
 // célula do desembolso; com edit = { id, m } o previsto do mês é editável na própria célula
 function dcell(real, prev, cur, edit) {
   const c = cur ? ' cur' : '';
@@ -2320,12 +2330,10 @@ function disbHTML(opts = {}) {
     tBudget += cB; tReal += cR;
   }
   h += `<tr class="g-total"><td class="stk">Total</td>${months.map(m => dcell(round2(totR[m] || 0), round2(totP[m] || 0), m === cur)).join('')}${dcell(round2(tReal), round2(tBudget), false).replace('class="dc', 'class="dc tot')}<td></td></tr>`;
-  if (opts.bal !== false) { // saldo previsto (receitas − gastos previstos de cada mês)
-    const planOf = (type, m) => f.items.filter(i => i.type === type).reduce((a, i) => a + (i.plan[m] || 0), 0);
-    const bal = months.map(m => round2(planOf('income', m) - planOf('expense', m)));
-    let acc = 0;
-    h += `<tr class="g-bal"><td class="stk" title="Receitas previstas menos gastos previstos no mês">Saldo previsto do mês</td>${bal.map((v, k) => `<td class="num${months[k] === cur ? ' cur' : ''} ${v < 0 ? 'neg' : ''}">${v ? money(v) : ''}</td>`).join('')}<td></td><td></td></tr>`;
-    h += `<tr class="g-bal"><td class="stk">Saldo previsto acumulado</td>${bal.map((v, k) => { acc = round2(acc + v); return `<td class="num${months[k] === cur ? ' cur' : ''} ${acc < 0 ? 'neg' : ''}">${money(acc)}</td>`; }).join('')}<td></td><td></td></tr>`;
+  if (opts.bal !== false) {
+    const { real, plan } = balances(months);
+    h += `<tr class="g-bal"><td class="stk" title="Entradas menos saídas registradas no Histórico de Pagamento, acumuladas até o fim de cada mês">Saldo acumulado real</td>${real.map((v, k) => `<td class="num${months[k] === cur ? ' cur' : ''} ${v < 0 ? 'neg' : ''}">${v === null ? '' : money(v)}</td>`).join('')}<td></td><td></td></tr>`;
+    h += `<tr class="g-bal"><td class="stk" title="Receitas previstas menos gastos previstos, acumulados">Saldo previsto acumulado</td>${plan.map((v, k) => `<td class="num${months[k] === cur ? ' cur' : ''} ${v < 0 ? 'neg' : ''}">${money(v)}</td>`).join('')}<td></td><td></td></tr>`;
   }
   return h + '</tbody></table></div>';
 }
@@ -2815,11 +2823,9 @@ function buildFinCSV(view, o, sep) {
         csvNum(i.amount, sep), csvNum(r.total, sep), pct(r.total, i.amount)]);
     }
     if (o.bal) {
-      let acc = 0;
-      const planOf = (type, m) => state.finance.items.filter(i => i.type === type).reduce((a, i) => a + (i.plan[m] || 0), 0);
-      const bal = o.months.map(m => round2(planOf('income', m) - planOf('expense', m)));
-      rows.push(['Saldo previsto do mês', '', '', ...bal.flatMap(v => [csvNum(v, sep), '', '']), '', '', '']);
-      rows.push(['Saldo previsto acumulado', '', '', ...bal.flatMap(v => [csvNum(acc = round2(acc + v), sep), '', '']), '', '', '']);
+      const { real, plan } = balances(o.months);
+      rows.push(['Saldo acumulado real', '', '', ...real.flatMap(v => [v === null ? '' : csvNum(v, sep), '', '']), '', '', '']);
+      rows.push(['Saldo previsto acumulado', '', '', ...plan.flatMap(v => [csvNum(v, sep), '', '']), '', '', '']);
     }
   } else {
     const cols = [...HIST_COLS, ...HIST_CSV_EXTRA].filter(c => o.cols.includes(c.key));
