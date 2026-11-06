@@ -2241,8 +2241,20 @@ async function pickAttachment() {
 // O navegador não revela o caminho de um arquivo escolhido. Por isso o usuário informa uma vez o caminho
 // da pasta e a seleciona; guardamos a lista de arquivos (caminho relativo, nome, tamanho, data — não o conteúdo).
 // Ao escolher um anexo, ele é reconhecido nessa lista e o caminho completo é montado: pasta + caminho relativo.
-const DOCIDX_KEY = 'docindex';
-async function getDocIndex() { try { return (await fileDB.get(DOCIDX_KEY)) || null; } catch (e) { return null; } }
+// A lista é guardada por projeto (chave = caminho da pasta dos documentos), para um projeto não usar a pasta de outro.
+const DOCIDX_KEY = 'docindex'; // chave antiga (única para todos os projetos) — só para migrar
+const docIdxKey = root => 'docindex:' + norm(cleanPath(root || '').replace(/[\\/]+$/, ''));
+async function getDocIndex(root = state.finance.docsRoot) {
+  if (!root) return null;
+  try {
+    const idx = await fileDB.get(docIdxKey(root)); if (idx) return idx;
+    // migração: a lista antiga vale para este projeto se for da mesma pasta (mesmo nome no fim do caminho)
+    const old = await fileDB.get(DOCIDX_KEY), last = baseName(cleanPath(root).replace(/[\\/]+$/, ''));
+    if (old && last && norm(old.folder) === norm(last)) { await fileDB.set(docIdxKey(root), old); await fileDB.set(DOCIDX_KEY, null); return old; } // migra uma vez só
+  } catch (e) {}
+  return null;
+}
+const setDocIndex = (idx, root = state.finance.docsRoot) => fileDB.set(docIdxKey(root), idx);
 async function scanDirHandle(dir, prefix, out) {
   for await (const [name, h] of dir.entries()) {
     if (h.kind === 'directory') await scanDirHandle(h, prefix + name + '/', out);
@@ -2267,12 +2279,20 @@ function pickFolderClassic() { // <input webkitdirectory>: lista os arquivos da 
     inp.click();
   });
 }
-async function pickDocsFolder() {
+// startIn: a pasta dos documentos já selecionada para este projeto ou, se não houver, a pasta do arquivo do projeto
+async function pickDocsFolder(startIn) {
   if (window.showDirectoryPicker) {
-    const dir = await showDirectoryPicker({ mode: 'read' });
+    let dir;
+    try { dir = await showDirectoryPicker(startIn ? { mode: 'read', startIn } : { mode: 'read' }); }
+    catch (e) { if (e.name === 'AbortError' || !startIn) throw e; dir = await showDirectoryPicker({ mode: 'read' }); } // pasta inicial inválida: abre sem ela
     return { folder: dir.name, handle: dir, files: await scanDirHandle(dir, '', []) };
   }
   return pickFolderClassic();
+}
+async function docsStartIn(root) {
+  const idx = await getDocIndex(root);
+  if (idx && idx.handle && idx.handle.kind === 'directory') return idx.handle;
+  return fileHandle || undefined; // um arquivo: o seletor abre na pasta dele (a pasta do projeto)
 }
 function joinDocPath(root, rel) {
   root = cleanPath(root).replace(/[\\/]+$/, '');
@@ -2295,7 +2315,7 @@ async function resolveDocPath(file, fileHandle) {
     try {
       if ((await idx.handle.queryPermission({ mode: 'read' })) === 'granted') {
         idx = { ...idx, files: await scanDirHandle(idx.handle, '', []), at: Date.now() };
-        await fileDB.set(DOCIDX_KEY, idx);
+        await setDocIndex(idx);
         hit = idx.files.find(e => sameFile(e, file));
       }
     } catch (e) {}
@@ -2317,11 +2337,11 @@ async function refreshDocsFolder() {
     }
     if (!next) {
       if (idx) toast(`Selecione novamente a pasta "${idx.folder}"`, 4000);
-      const r = await pickDocsFolder();
+      const r = await pickDocsFolder(await docsStartIn());
       if (idx && norm(r.folder) !== norm(idx.folder) && !confirm(`A pasta selecionada ("${r.folder}") é diferente da configurada ("${idx.folder}"). Usar mesmo assim?`)) return;
       next = { folder: r.folder, files: r.files, handle: r.handle || null, at: Date.now() };
     }
-    await fileDB.set(DOCIDX_KEY, next);
+    await setDocIndex(next);
     const diff = idx ? next.files.length - idx.files.length : 0;
     toast(`🔄 Lista atualizada: ${next.files.length} arquivo(s)${diff > 0 ? ` (+${diff} novo${diff > 1 ? 's' : ''})` : ''}`, 3500);
   } catch (e) { if (e.name !== 'AbortError') toast('Não foi possível atualizar a pasta: ' + e.message); }
@@ -2331,7 +2351,8 @@ async function refreshDocsFolder() {
 const docsDlg = $('#docsDlg');
 let docsPending = null;
 async function renderDocsStatus() {
-  const idx = docsPending || await getDocIndex(), el = $('#docsStatus');
+  const typedRoot = cleanPath($('#docsRoot').value) || state.finance.docsRoot;
+  const idx = docsPending || await getDocIndex(typedRoot), el = $('#docsStatus');
   if (!idx) { el.textContent = 'Nenhuma pasta selecionada ainda.'; el.className = 'muted'; return; }
   el.textContent = `📁 "${idx.folder}" — ${idx.files.length} arquivo(s) PDF/PNG/JPG reconhecidos · lista de ${whenLabel(idx.at)}${docsPending ? ' (salve para usar)' : ''}`;
   el.className = 'ok';
@@ -2348,7 +2369,7 @@ async function openDocsDlg() {
 $('#docsRoot').addEventListener('input', renderDocsStatus);
 $('#docsPick').onclick = async () => {
   try {
-    const r = await pickDocsFolder();
+    const r = await pickDocsFolder(await docsStartIn(cleanPath($('#docsRoot').value) || state.finance.docsRoot));
     docsPending = { folder: r.folder, files: r.files, handle: r.handle || null, at: Date.now() };
     if (!$('#docsRoot').value.trim()) toast('Agora cole o caminho completo dessa pasta no campo acima', 5000);
     renderDocsStatus();
@@ -2357,14 +2378,14 @@ $('#docsPick').onclick = async () => {
 $('#docsCancel').onclick = () => docsDlg.close();
 $('#docsClear').onclick = async () => {
   if (!confirm('Esquecer a pasta dos documentos? Os caminhos já gravados nas transações continuam.')) return;
-  try { await fileDB.set(DOCIDX_KEY, null); } catch (e) {}
+  try { await setDocIndex(null); } catch (e) {}
   fmutate(() => state.finance.docsRoot = ''); docsDlg.close();
 };
 $('#docsSave').onclick = async () => {
   const root = cleanPath($('#docsRoot').value);
   if (!root || !pathToURL(root)) { toast('Cole o caminho completo da pasta, ex.: G:\\Meu Drive\\...\\Notas e comprovantes', 5000); $('#docsRoot').focus(); return; }
-  if (!docsPending && !(await getDocIndex())) { toast('Selecione a pasta em "📂 Selecionar a pasta…"'); return; }
-  if (docsPending) { try { await fileDB.set(DOCIDX_KEY, docsPending); } catch (e) { toast('Não foi possível guardar a lista de arquivos neste navegador'); return; } }
+  if (!docsPending && !(await getDocIndex(root))) { toast('Selecione a pasta em "📂 Selecionar a pasta…"'); return; }
+  if (docsPending) { try { await setDocIndex(docsPending, root); } catch (e) { toast('Não foi possível guardar a lista de arquivos neste navegador'); return; } }
   fmutate(() => state.finance.docsRoot = root);
   docsDlg.close(); toast('📁 Pasta dos documentos configurada: o caminho dos anexos será preenchido automaticamente', 4000);
 };
