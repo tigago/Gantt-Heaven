@@ -61,6 +61,25 @@ input,textarea,select{font:inherit;color:inherit}
 .row select.catsel.has{border-style:solid;color:var(--text);font-weight:600}
 .row select.catsel:focus{box-shadow:0 0 0 2px rgba(79,107,237,.25)}
 .row .num{color:var(--muted);font-size:11px;text-align:right;padding-right:4px}
+.row .nmw{display:flex;align-items:center;gap:3px;min-width:0}
+.row .stog{flex:none;border:1px solid var(--line);background:#fff;border-radius:999px;padding:0 6px;font-size:10.5px;color:var(--muted);line-height:17px;cursor:pointer}
+.row .stog:hover{color:var(--text);border-color:#c9cedb}
+.row.sec{background:#fbfbfd}
+.row.sec .num{text-align:center;padding:0}
+.row.sec .secchk{margin:0;cursor:pointer}
+.row.sec .secname{font-size:12px;color:#3c4458;padding-left:22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row.sec .sdur{font-size:11.5px;color:var(--muted);text-align:right;padding-right:4px}
+.row.sec.done .secname{text-decoration:line-through;color:var(--muted)}
+.secbar{cursor:pointer}
+.secbar text{font-size:11px;font-weight:600;pointer-events:none}
+.secbar:hover rect{filter:brightness(.95);stroke-width:2}
+.band.secband{fill:#fbfbfd}
+.secs{display:flex;flex-direction:column;gap:6px;margin:4px 0 6px}
+.secrow{display:grid;grid-template-columns:auto 1fr 140px 140px auto;gap:6px;align-items:center}
+.secrow input[type=text],.secrow input[type=date]{border:1px solid var(--line);border-radius:7px;padding:5px 7px;font:inherit;font-size:12.5px;color:var(--text)}
+.secrow button{border:none;background:none;color:var(--muted);padding:2px 6px}
+.secrow button:hover{color:var(--danger)}
+button.secadd{font-size:12px;padding:4px 10px}
 .row input.name{border:1px solid transparent;background:transparent;padding:4px 6px;border-radius:5px;min-width:0;width:100%}
 .row input.name:hover{border-color:var(--line)}
 .row input.name:focus{border-color:var(--accent);background:#fff;outline:none}
@@ -418,6 +437,9 @@ dialog.xwide{width:min(940px,96vw)}
       <label>Duração (dias)<input type="number" name="duration" min="1" required></label>
     </div>
     <label>Progresso: <span id="progVal">0%</span><input type="range" name="progress" min="0" max="100" step="5"></label>
+    <div><span class="lbl">Seções <span class="muted" style="font-weight:400">— etapas tickáveis dentro do período da tarefa (com seções, o progresso é calculado por elas)</span></span>
+      <div id="dlgSecs" class="secs"></div>
+      <button type="button" id="dlgAddSec" class="secadd">+ Seção</button></div>
     <label>Categoria<select name="category" id="dlgCategory"></select></label>
     <div><span class="lbl">Membros responsáveis</span><div id="dlgMembers" class="chips"></div></div>
     <div><span class="lbl">Depende de (só começa após o término de):</span><div id="dlgDeps" class="deps"></div></div>
@@ -698,7 +720,9 @@ function deserialize(o) {
     if (!Number.isFinite(start)) start = todayIdx();
     return { id: String(t.id || uid()), name: String(t.name ?? 'Tarefa'), start,
       duration: Math.max(1, Math.round(+t.duration || 1)), progress: clamp(Math.round(+t.progress || 0), 0, 100),
-      members: (t.members || []).map(String).filter(id => mids.has(id)), category: cids.has(String(t.category)) ? String(t.category) : null, deps: (t.deps || []).map(String), notes: String(t.notes || '') };
+      members: (t.members || []).map(String).filter(id => mids.has(id)), category: cids.has(String(t.category)) ? String(t.category) : null, deps: (t.deps || []).map(String), notes: String(t.notes || ''),
+      // seções: etapas "tickáveis" dentro do período da tarefa (off = dias a partir do início da tarefa)
+      sections: (Array.isArray(t.sections) ? t.sections : []).map(x => ({ id: String(x.id || uid()), name: String(x.name ?? 'Seção'), off: Math.max(0, Math.round(+x.off || 0)), dur: Math.max(1, Math.round(+x.dur || 1)), done: !!x.done })) };
   });
   const tids = new Set(tasks.map(t => t.id));
   tasks.forEach(t => t.deps = [...new Set(t.deps)].filter(d => tids.has(d) && d !== t.id));
@@ -729,6 +753,16 @@ function schedule() {
     visiting.delete(t.id); done.add(t.id);
   };
   state.tasks.forEach(visit);
+  state.tasks.forEach(fitSections);
+}
+// mantém as seções dentro do período da tarefa e, havendo seções, o progresso = % de seções concluídas
+function fitSections(t) {
+  if (!t.sections) t.sections = [];
+  for (const x of t.sections) {
+    x.off = clamp(x.off, 0, t.duration - 1);
+    x.dur = clamp(x.dur, 1, t.duration - x.off);
+  }
+  if (t.sections.length) t.progress = Math.round(t.sections.filter(x => x.done).length / t.sections.length * 100);
 }
 // verdadeiro se "a" depende (direta ou indiretamente) de "b"
 function dependsOn(aId, bId, seen = new Set()) {
@@ -777,6 +811,16 @@ function computeRange() {
 const passFilter = t => (!highlightMember || (highlightMember === '__none' ? !t.members.length : t.members.includes(highlightMember)))
   && (!highlightCategory || (highlightCategory === '__none' ? !t.category : t.category === highlightCategory));
 const visTasks = () => state.tasks.filter(passFilter);
+const secClosed = new Set(); // tarefas com as seções recolhidas (só na tela)
+// linhas do cronograma: cada tarefa visível seguida das suas seções (se expandidas)
+function rowModel() {
+  const rows = [];
+  for (const t of visTasks()) {
+    rows.push({ t });
+    if (t.sections && t.sections.length && !secClosed.has(t.id)) t.sections.forEach(x => rows.push({ t, s: x }));
+  }
+  return rows;
+}
 
 function avatarsHTML(ids, max = 3) {
   const ms = ids.map(member).filter(Boolean);
@@ -802,15 +846,27 @@ function scheduleRender() { if (rafPending) return; rafPending = true; requestAn
 function renderList() {
   let h = '';
   const num = new Map(state.tasks.map((t, i) => [t.id, i + 1]));
-  visTasks().forEach(t => {
+  rowModel().forEach(({ t, s: sec }) => {
+    if (sec) { // linha de seção: marcar como concluída, nome e período
+      const a = t.start + sec.off, b = a + sec.dur - 1;
+      h += `<div class="row cols sec${sec.done ? ' done' : ''}" data-tid="${t.id}" data-sec="${sec.id}">
+        <span></span><span></span>
+        <span class="num"><input type="checkbox" class="secchk" ${sec.done ? 'checked' : ''} title="Marcar a seção como concluída"></span>
+        <span class="secname" title="${esc(sec.name)} — duplo clique para editar as seções">${esc(sec.name)}</span>
+        <span class="date" title="${fmtLong(a)}">${fmt(a)}</span><span class="date" title="${fmtLong(b)}">${fmt(b)}</span>
+        <span class="sdur">${sec.dur}</span><span></span></div>`;
+      return;
+    }
     const cat = category(t.category), i = num.get(t.id) - 1;
+    const ns = t.sections ? t.sections.length : 0;
+    const tog = ns ? `<button class="stog" data-tog="${t.id}" title="${secClosed.has(t.id) ? 'Mostrar' : 'Ocultar'} as seções">${secClosed.has(t.id) ? '▸' : '▾'} ${t.sections.filter(x => x.done).length}/${ns}</button>` : '';
     h += `<div class="row cols${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}">
       <span class="handle" draggable="true" title="Arraste para reordenar">⠿</span>
       <select class="catsel${cat ? ' has' : ''}" title="${cat ? 'Categoria: ' + esc(cat.name) : 'Sem categoria'}"${cat ? ` style="border-color:${cat.color};background-color:${cat.color}1f"` : ''}>
         <option value="">—</option>${state.categories.map(c => `<option value="${c.id}"${c.id === t.category ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="__new">+ Nova…</option>
       </select>
       <span class="num">${i + 1}</span>
-      <input class="name" value="${esc(t.name)}" spellcheck="false" title="${esc(t.name)}">
+      <span class="nmw">${tog}<input class="name" value="${esc(t.name)}" spellcheck="false" title="${esc(t.name)}"></span>
       <span class="date" title="${fmtLong(t.start)}">${fmt(t.start)}</span>
       <span class="date" title="${fmtLong(t.start + t.duration - 1)}">${fmt(t.start + t.duration - 1)}</span>
       <input class="dur" type="number" min="1" value="${t.duration}">
@@ -961,18 +1017,19 @@ function linkPath(p, t, ip, it) {
 }
 
 function renderChart() {
-  const tasks = visTasks(), n = tasks.length, W = range.days * dayW, H = (n + 1) * ROW, today = todayIdx();
+  const tasks = visTasks(), rows = rowModel(), n = rows.length, W = range.days * dayW, H = (n + 1) * ROW, today = todayIdx();
   const defs = [];
   let bg = '', links = '', bars = '';
   // faixas das linhas (destaque da linha selecionada)
-  tasks.forEach((t, i) => { bg += `<rect class="band${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}" x="0" y="${i * ROW}" width="${W}" height="${ROW}"/>`; });
+  rows.forEach(({ t, s: sec }, i) => { bg += `<rect class="band${sec ? ' secband' : ''}${t.id === selectedId ? ' sel' : ''}" data-id="${t.id}" x="0" y="${i * ROW}" width="${W}" height="${ROW}"/>`; });
   // colunas (dias / semanas / meses) e períodos destacados
   bg += columnsBackground(H);
   const tx = (today - range.start) * dayW + dayW / 2;
   const todayLine = `<line x1="${tx}" x2="${tx}" y1="0" y2="${H}" stroke="${TODAY_COLOR}" stroke-width="1.5" pointer-events="none"/>`;
 
-  const index = new Map(tasks.map((t, i) => [t.id, i]));
-  tasks.forEach((t, it) => {
+  const index = new Map(); rows.forEach((r, i) => { if (!r.s) index.set(r.t.id, i); });
+  tasks.forEach(t => {
+    const it = index.get(t.id);
     for (const d of t.deps) {
       const p = task(d); if (!p || !index.has(d)) continue; // dependência com tarefa oculta pelo filtro não é desenhada
       const dpath = linkPath(p, t, index.get(d), it);
@@ -981,7 +1038,19 @@ function renderChart() {
   });
 
   const H_BAR = 24, R = H_BAR / 2, AV = 20, AV_STEP = 13;
-  tasks.forEach((t, i) => {
+  // barras das seções (clique para marcar/desmarcar como concluída)
+  let secBars = '';
+  rows.forEach(({ t, s: sec }, i) => {
+    if (!sec) return;
+    const ms = t.members.map(member).filter(Boolean), color = ms.length ? ms[0].color : '#9aa3b5';
+    const SH = 14, x = (t.start + sec.off - range.start) * dayW, w = sec.dur * dayW, y = i * ROW + (ROW - SH) / 2;
+    const lbl = fitText((sec.done ? '✓ ' : '') + sec.name, w - 10, '600 11px "Segoe UI", system-ui, sans-serif');
+    secBars += `<g class="secbar${sec.done ? ' done' : ''}" data-tid="${t.id}" data-sec="${sec.id}"><rect x="${x + 1}" y="${y}" width="${Math.max(w - 2, 2)}" height="${SH}" rx="${SH / 2}" fill="${sec.done ? '#c9cedb' : color}" fill-opacity="${sec.done ? 1 : .55}" stroke="${color}"/>`
+      + (lbl ? `<text x="${x + 7}" y="${y + 11}" style="fill:${sec.done ? '#5b6378' : textOn(color)}">${esc(lbl)}</text>` : '')
+      + `<title>${esc(sec.name)} · ${fmtLong(t.start + sec.off)} → ${fmtLong(t.start + sec.off + sec.dur - 1)}${sec.done ? ' · concluída' : ''} — clique para ${sec.done ? 'desmarcar' : 'marcar como concluída'}</title></g>`;
+  });
+  tasks.forEach(t => {
+    const i = index.get(t.id);
     const x = (t.start - range.start) * dayW, w = t.duration * dayW, y = i * ROW + (ROW - H_BAR) / 2, cy = y + R;
     const rx = Math.min(R, w / 2);
     const ms = t.members.map(member).filter(Boolean);
@@ -1025,7 +1094,7 @@ function renderChart() {
   });
   chartEl.innerHTML = `<svg id="chartSvg" width="${W}" height="${H}">
     <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#8a92a6"/></marker>${defs.join('')}</defs>
-    <g>${bg}</g>${todayLine}<g>${links}</g><g>${bars}</g>
+    <g>${bg}</g>${todayLine}<g>${links}</g><g>${secBars}</g><g>${bars}</g>
     <line id="tempLink" x1="0" y1="0" x2="0" y2="0" style="display:none"/></svg>`;
 }
 
@@ -1048,6 +1117,10 @@ function setSelected(id) {
 }
 
 // ---------- Ações ----------
+function toggleSection(tid, sid) {
+  const t = task(tid), x = t && t.sections.find(y => y.id === sid); if (!x) return;
+  mutate(() => x.done = !x.done);
+}
 function addTask() {
   const sel = selectedId && task(selectedId);
   const t = { id: uid(), name: `Nova tarefa ${state.tasks.length + 1}`, start: sel ? sel.start + sel.duration : todayIdx(), duration: 5, progress: 0, members: [], deps: [], notes: '' };
@@ -1425,6 +1498,8 @@ chartEl.addEventListener('pointerdown', e => {
     if (p && t && confirm(`Remover a dependência "${p.name}" → "${t.name}"?`)) mutate(() => t.deps = t.deps.filter(d => d !== p.id));
     return;
   }
+  const sb = e.target.closest('.secbar');
+  if (sb) { toggleSection(sb.dataset.tid, sb.dataset.sec); return; }
   const g = e.target.closest('.bar');
   if (!g) { setSelected(e.target.classList.contains('band') ? e.target.dataset.id : null); return; }
   e.preventDefault();
@@ -1439,7 +1514,7 @@ chartEl.addEventListener('pointerdown', e => {
   }
   const h = e.target.dataset.h;
   drag = { type: h === 'l' ? 'left' : h === 'r' ? 'right' : 'move', id, x0: e.clientX, prev: snap(), moved: false,
-    base: new Map(state.tasks.map(t => [t.id, { start: t.start, duration: t.duration }])), rangeStart: range.start };
+    base: new Map(state.tasks.map(t => [t.id, { start: t.start, duration: t.duration, secs: (t.sections || []).map(x => ({ off: x.off, dur: x.dur })) }])), rangeStart: range.start };
   const s0 = scroller.scrollLeft; drag.scrollDelta = () => scroller.scrollLeft - s0; // compensa rolagem durante o arraste
   setSelected(id);
 });
@@ -1463,7 +1538,7 @@ window.addEventListener('pointermove', e => {
   document.body.classList.add('dragging');
   document.body.style.cursor = drag.type === 'move' ? 'grabbing' : 'ew-resize';
   const dd = Math.round((e.clientX - drag.x0 + drag.scrollDelta()) / dayW);
-  for (const t of state.tasks) { const b = drag.base.get(t.id); t.start = b.start; t.duration = b.duration; }
+  for (const t of state.tasks) { const b = drag.base.get(t.id); t.start = b.start; t.duration = b.duration; b.secs.forEach((y, k) => { if (t.sections[k]) { t.sections[k].off = y.off; t.sections[k].dur = y.dur; } }); }
   const t = task(drag.id), b = drag.base.get(drag.id);
   const ms = minStart(t);
   if (drag.type === 'move') t.start = Math.max(b.start + dd, ms);
@@ -1471,6 +1546,7 @@ window.addEventListener('pointermove', e => {
     let ns = Math.min(b.start + dd, b.start + b.duration - 1);
     ns = Math.max(ns, ms);
     t.duration = b.start + b.duration - ns; t.start = ns;
+    t.sections.forEach(x => x.off += b.start - ns); // as seções ficam nas mesmas datas
   } else t.duration = Math.max(1, b.duration + dd);
   schedule();
   scheduleRender();
@@ -1516,8 +1592,16 @@ scroller.addEventListener('wheel', e => {
 
 // ---------- Interação na lista ----------
 listEl.addEventListener('pointerdown', e => { const row = e.target.closest('.row[data-id]'); if (row && row.dataset.id !== selectedId) setSelected(row.dataset.id); });
-listEl.addEventListener('click', e => { if (e.target.id === 'addRow') addTask(); });
-listEl.addEventListener('dblclick', e => { if (e.target.matches('input,select')) return; const row = e.target.closest('.row[data-id]'); if (row) openTaskDlg(row.dataset.id); });
+listEl.addEventListener('click', e => {
+  if (e.target.id === 'addRow') addTask();
+  const tg = e.target.closest('.stog');
+  if (tg) { const id = tg.dataset.tog; secClosed.has(id) ? secClosed.delete(id) : secClosed.add(id); render(); }
+});
+listEl.addEventListener('change', e => {
+  if (!e.target.matches('input.secchk')) return;
+  const r = e.target.closest('.row.sec'); toggleSection(r.dataset.tid, r.dataset.sec);
+});
+listEl.addEventListener('dblclick', e => { if (e.target.matches('input,select,button')) return; const row = e.target.closest('.row[data-id],.row.sec'); if (row) openTaskDlg(row.dataset.id || row.dataset.tid); });
 listEl.addEventListener('keydown', e => {
   if (!e.target.matches('input')) return;
   if (e.key === 'Enter') e.target.blur();
@@ -1567,7 +1651,8 @@ listEl.addEventListener('drop', e => {
   mutate(() => {
     const t = task(id);
     const rest = state.tasks.filter(x => x.id !== id);
-    let idx = row.classList.contains('add') ? rest.length : rest.findIndex(x => x.id === row.dataset.id) + (after ? 1 : 0);
+    const rid = row.dataset.id || row.dataset.tid; // soltar sobre uma seção = junto da tarefa dela
+    let idx = row.classList.contains('add') ? rest.length : rest.findIndex(x => x.id === rid) + (after || row.classList.contains('sec') ? 1 : 0);
     if (idx < 0) idx = rest.length;
     rest.splice(idx, 0, t); state.tasks = rest;
   });
@@ -1592,6 +1677,8 @@ function openTaskDlg(id) {
   form.name.value = t.name; form.start.value = fromIdx(t.start); form.end.value = fromIdx(t.start + t.duration - 1);
   form.duration.value = t.duration; form.progress.value = t.progress; $('#progVal').textContent = t.progress + '%';
   form.notes.value = t.notes || '';
+  dlgSecs = (t.sections || []).map(x => ({ id: x.id, name: x.name, a: t.start + x.off, b: t.start + x.off + x.dur - 1, done: x.done }));
+  renderDlgSecs();
   renderDlgMembers();
   renderDlgCategory(t.category);
   const others = state.tasks.filter(x => x.id !== id);
@@ -1602,6 +1689,50 @@ function openTaskDlg(id) {
   taskDlg.showModal();
   form.name.focus(); form.name.select();
 }
+// seções no diálogo (datas absolutas; convertidas para deslocamentos ao salvar)
+let dlgSecs = [];
+function dlgPeriod() {
+  const s = toIdx(form.start.value), d = Math.max(1, Math.round(+form.duration.value || 1));
+  return Number.isFinite(s) ? { s, e: s + d - 1 } : null;
+}
+function renderDlgSecs() {
+  const p = dlgPeriod(), mn = p ? fromIdx(p.s) : '', mx = p ? fromIdx(p.e) : '';
+  $('#dlgSecs').innerHTML = dlgSecs.map((x, k) => `<div class="secrow" data-k="${k}">
+    <input type="checkbox" data-f="done" ${x.done ? 'checked' : ''} title="Concluída">
+    <input type="text" data-f="name" value="${esc(x.name)}" placeholder="ex.: Personagem Cuca">
+    <input type="date" data-f="a" value="${fromIdx(x.a)}" min="${mn}" max="${mx}" title="Início da seção">
+    <input type="date" data-f="b" value="${fromIdx(x.b)}" min="${mn}" max="${mx}" title="Fim da seção">
+    <button type="button" data-f="del" title="Remover a seção">✕</button></div>`).join('') || '<div class="empty" style="font-size:12px;color:var(--muted)">Nenhuma seção.</div>';
+  form.progress.disabled = dlgSecs.length > 0;
+  if (dlgSecs.length) { const v = Math.round(dlgSecs.filter(x => x.done).length / dlgSecs.length * 100); form.progress.value = v; $('#progVal').textContent = v + '% (pelas seções)'; }
+  else $('#progVal').textContent = form.progress.value + '%';
+}
+$('#dlgSecs').addEventListener('input', e => {
+  const r = e.target.closest('.secrow'); if (!r) return; const x = dlgSecs[+r.dataset.k], f = e.target.dataset.f;
+  if (f === 'name') x.name = e.target.value;
+  if (f === 'done') { x.done = e.target.checked; renderDlgSecs(); }
+});
+$('#dlgSecs').addEventListener('change', e => {
+  const r = e.target.closest('.secrow'); if (!r) return; const x = dlgSecs[+r.dataset.k], f = e.target.dataset.f;
+  if (f === 'a' || f === 'b') {
+    const v = toIdx(e.target.value), p = dlgPeriod(); if (!Number.isFinite(v) || !p) { renderDlgSecs(); return; }
+    x[f] = clamp(v, p.s, p.e);
+    if (x.a > x.b) { if (f === 'a') x.b = x.a; else x.a = x.b; }
+    if (v !== x[f]) toast('A seção precisa ficar dentro do período da tarefa');
+    renderDlgSecs();
+  }
+});
+$('#dlgSecs').addEventListener('click', e => {
+  const b = e.target.closest('[data-f=del]'); if (!b) return;
+  dlgSecs.splice(+b.closest('.secrow').dataset.k, 1); renderDlgSecs();
+});
+$('#dlgAddSec').onclick = () => {
+  const p = dlgPeriod(); if (!p) return;
+  const last = dlgSecs.length ? Math.max(...dlgSecs.map(x => x.b)) : p.s - 1, a = Math.min(last + 1, p.e);
+  dlgSecs.push({ id: uid(), name: `Seção ${dlgSecs.length + 1}`, a, b: a, done: false });
+  renderDlgSecs();
+  const inp = $('#dlgSecs').querySelector('.secrow:last-child [data-f=name]'); if (inp) { inp.focus(); inp.select(); }
+};
 function renderDlgMembers() {
   $('#dlgMembers').innerHTML = state.members.length ? state.members.map(m =>
     `<span class="chip${dlgMembers.has(m.id) ? ' on' : ''}" data-mid="${m.id}"><span class="dot" style="background:${m.color};color:${textOn(m.color)}">${esc(initials(m.name))}</span>${esc(m.name)}</span>`).join('')
@@ -1636,6 +1767,14 @@ form.end.addEventListener('change', () => {
   form.duration.value = Math.max(1, en - s + 1);
 });
 form.duration.addEventListener('input', () => { const s = toIdx(form.start.value), d = Math.max(1, Math.round(+form.duration.value || 1)); if (Number.isFinite(s)) form.end.value = fromIdx(s + d - 1); });
+let dlgPrevStart = null;
+form.start.addEventListener('focus', () => dlgPrevStart = toIdx(form.start.value));
+['start', 'end', 'duration'].forEach(n => form[n].addEventListener('change', () => {
+  const p = dlgPeriod(); if (!p) return;
+  if (n === 'start' && Number.isFinite(dlgPrevStart)) { const dd = p.s - dlgPrevStart; dlgSecs.forEach(x => { x.a += dd; x.b += dd; }); dlgPrevStart = p.s; } // mover o início leva as seções junto
+  dlgSecs.forEach(x => { x.a = clamp(x.a, p.s, p.e); x.b = clamp(x.b, x.a, p.e); });
+  renderDlgSecs();
+}));
 form.progress.addEventListener('input', () => $('#progVal').textContent = form.progress.value + '%');
 form.addEventListener('submit', e => {
   e.preventDefault();
@@ -1650,6 +1789,8 @@ form.addEventListener('submit', e => {
     t.members = state.members.filter(m => dlgMembers.has(m.id)).map(m => m.id);
     t.deps = deps; t.notes = form.notes.value;
     t.category = category(form.category.value) ? form.category.value : null;
+    const ts = Number.isFinite(s) ? s : t.start;
+    t.sections = dlgSecs.map(x => ({ id: x.id, name: x.name.trim() || 'Seção', off: x.a - ts, dur: x.b - x.a + 1, done: x.done }));
   });
   if (Number.isFinite(s) && task(dlgTaskId).start > s) toast('Início ajustado para depois das dependências');
   taskDlg.close();
