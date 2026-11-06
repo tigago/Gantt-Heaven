@@ -284,6 +284,8 @@ button.income-btn:hover{background:#eaf7ee}
 .ft.hist .acts button.newpay{font-size:11.5px;color:var(--accent)}
 .ft.hist td.num.out{color:#c93c37;font-weight:600}
 .ft.hist td.num.in{color:#1a7f37;font-weight:600}
+.ft.hist td.num.bal{color:#3c4458;font-weight:600}
+.ft.hist td.num.bal.neg{color:#c93c37}
 .ft.hist td.ctr{text-align:center;color:#1a7f37}
 .nowrap{white-space:nowrap}
 .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700}
@@ -2672,10 +2674,16 @@ function txSorted() {
 const itemLabel = i => i ? (i.category ? `${i.category} · ` : '') + i.name : '(item removido)';
 const HIST_COLS = [
   { key: 'date', label: 'Data' }, { key: 'dir', label: 'Tipo' }, { key: 'item', label: 'Item' },
-  { key: 'rec', label: 'Destinatário / Origem' }, { key: 'value', label: 'Valor', num: true }, { key: 'contract', label: 'Contrato' },
+  { key: 'rec', label: 'Destinatário / Origem' }, { key: 'value', label: 'Valor', num: true }, { key: 'balance', label: 'Saldo acumulado', num: true }, { key: 'contract', label: 'Contrato' },
   { key: 'invoice', label: 'Nota Fiscal' }, { key: 'receipt', label: 'Comprovante' }, { key: 'notes', label: 'Observação' },
 ];
 const HIST_CSV_EXTRA = [{ key: 'contractDoc', label: 'Arquivo do contrato' }, { key: 'category', label: 'Categoria do item' }, { key: 'phone', label: 'Telefone' }, { key: 'email', label: 'E-mail' }, { key: 'pix', label: 'Chave Pix' }];
+// saldo acumulado após cada transação (entradas − saídas de todo o histórico, em ordem de data — não depende dos filtros)
+function runningBalance() {
+  const m = new Map(); let acc = 0;
+  for (const t of txSorted()) { acc = round2(acc + (t.direction === 'in' ? t.amount : -t.amount)); m.set(t.id, acc); }
+  return m;
+}
 // transações conforme filtros da tela e/ou intervalo de datas
 function txList(opts = {}) {
   const useF = opts.filters !== false;
@@ -2689,6 +2697,7 @@ function historyHTML(opts = {}) {
   const months = [...new Set([...all.map(t => ymOf(t.date)), finFilter.month].filter(Boolean))].sort();
   const list = txList(opts);
   const cols = HIST_COLS.filter(c => !opts.cols || opts.cols.includes(c.key));
+  const bal = runningBalance();
   const out = round2(list.filter(t => t.direction === 'out').reduce((a, t) => a + t.amount, 0));
   const inn = round2(list.filter(t => t.direction === 'in').reduce((a, t) => a + t.amount, 0));
   let h = `<div class="fin-toolbar">
@@ -2723,6 +2732,7 @@ function historyHTML(opts = {}) {
       case 'item': return `<td class="${it ? '' : 'muted'}">${esc(itemLabel(it))}</td>`;
       case 'rec': return `<td>${r ? `<span title="${esc([r.phone, r.email, r.pix && 'Pix: ' + r.pix].filter(Boolean).join(' · '))}">${esc(r.name)}</span>` : '<span class="muted">—</span>'}</td>`;
       case 'value': return `<td class="num ${t.direction}">${t.direction === 'out' ? '−' : '+'} ${money(t.amount)}</td>`;
+      case 'balance': { const v = bal.get(t.id) || 0; return `<td class="num bal${v < 0 ? ' neg' : ''}" title="Saldo após esta transação (entradas − saídas de todo o histórico até aqui)">${money(v)}</td>`; }
       case 'contract': {
         const a = t.contractDoc;
         if (a) return attCell(t, 'contractDoc');
@@ -3384,10 +3394,11 @@ function buildFinCSV(view, o, sep) {
   } else {
     const cols = [...HIST_COLS, ...HIST_CSV_EXTRA].filter(c => o.cols.includes(c.key));
     rows.push(cols.map(c => c.label));
+    const bal = runningBalance();
     for (const t of txList(o)) {
       const it = finItem(t.itemId), r = finRec(t.recipientId) || {};
       const val = { date: fmtDateBR(t.date), dir: t.direction === 'out' ? 'Saída' : 'Entrada', item: it ? it.name : '(item removido)', rec: r.name || '',
-        value: csvNum(t.amount, sep), contract: t.contract ? 'Sim' : 'Não', invoice: t.invoice ? (t.invoice.path || attName(t.invoice)) : '',
+        value: csvNum(t.amount, sep), balance: csvNum(bal.get(t.id) || 0, sep), contract: t.contract ? 'Sim' : 'Não', invoice: t.invoice ? (t.invoice.path || attName(t.invoice)) : '',
         receipt: t.receipt ? (t.receipt.path || attName(t.receipt)) : '', contractDoc: t.contractDoc ? (t.contractDoc.path || attName(t.contractDoc)) : '', notes: t.notes, category: it ? it.category : '', phone: r.phone || '', email: r.email || '', pix: r.pix || '' };
       rows.push(cols.map(c => val[c.key]));
     }
