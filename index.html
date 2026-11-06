@@ -1394,8 +1394,10 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
     .prow .pname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
     .prow .pr{text-align:right}
     .prow .avs{padding-left:6px}
-    .connector,.grip,.handle,.link-hit{display:none}
-    .bar,.bar .body{filter:none}`;
+    .connector,.grip,.handle,.link-hit,.sconnector,.shandle{display:none}
+    .bar,.bar .body{filter:none}
+    .link{stroke:#4a5368;stroke-width:${Math.min(3, Math.max(1.5, 1.4 / zoom)).toFixed(2)}px}
+    #arr path{fill:#4a5368}`; // setas de dependência mais fortes no PDF (o diagrama costuma ser reduzido para caber no papel)
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(state.name)}</title><style>${css}</style></head><body>
     <div class="sheet">
       <div class="ph"><div style="display:flex;align-items:baseline;gap:12px"><h1>${esc(state.name)}</h1><span style="margin-left:auto;color:#6b7385;font-size:12px">Gerado em ${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span></div>
