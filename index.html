@@ -258,6 +258,10 @@ button.income-btn:hover{background:#eaf7ee}
 .ft.disb tr.g-cat td.dc .dtop b{color:inherit}
 .ft.disb tr.g-cat td,.ft.disb tr.g-cat td *{font-weight:700}
 .ft.disb tr.g-cat td.dc small{color:#3c4458}
+.ft.disb td.dc.ed{padding:3px 6px;height:auto}
+.ft.disb td.dc input.fi.dp{min-width:0;width:100%;font-size:11.5px;padding:1px 5px;margin-top:2px;text-align:right;border-color:#e3e6ee;background:#fff;color:#3c4458;font-variant-numeric:tabular-nums}
+.ft.disb td.dc input.fi.dp:hover{border-color:#c9cedb}
+.ft.disb td.dc.empty.ed input.fi.dp{border-style:dashed}
 .ft.disb tr.g-cat td,.ft.disb tr.g-cat td.dc.tot{background:#e3e7f1;border-top:1px solid #cdd3e1;border-bottom:1px solid #cdd3e1}
 .ft.disb tr.g-cat td.cur{background:#d6def3}
 
@@ -541,7 +545,7 @@ dialog.xwide{width:min(940px,96vw)}
     <div id="fePeriodM" class="grid2"><label>Do mês<input type="month" name="mFrom"></label><label>Até o mês<input type="month" name="mTo"></label></div>
     <div id="fePeriodD" class="grid2"><label>De<input type="date" name="dFrom"></label><label>Até<input type="date" name="dTo"></label></div>
     <div id="feTypes"><span class="lbl">Incluir</span><div style="display:flex;gap:16px"><label class="check"><input type="checkbox" name="inc"> ↑ Receitas</label><label class="check"><input type="checkbox" name="exp"> ↓ Gastos</label></div></div>
-    <label class="check" id="feBalWrap"><input type="checkbox" name="bal"> Linhas de saldo (previsto do mês e acumulado)</label>
+    <label class="check" id="feBalWrap"><input type="checkbox" name="bal"> Linhas de saldo previsto (receitas − gastos do mês e acumulado)</label>
     <label class="check" id="feFiltWrap"><input type="checkbox" name="filt"> Aplicar os filtros atuais da tela (mês, serviço, destinatário, tipo)</label>
     <div id="feColsWrap"><span class="lbl">Colunas</span><div id="feCols" class="colpick"></div></div>
     <label id="feSepWrap">Separador<select name="sep"><option value=";">Ponto e vírgula ( ; ) — Excel em português</option><option value=",">Vírgula ( , )</option><option value="tab">Tabulação</option></select></label>
@@ -580,7 +584,7 @@ dialog.xwide{width:min(940px,96vw)}
       <tr><td>Colunas</td><td>Em ▦ Colunas escolha Dias, Semanas ou Meses para agrupar e sombrear as colunas. Clique no cabeçalho para destacar aquele dia/semana/mês; clique num destaque para removê-lo.</td></tr>
       <tr><td>PDF</td><td>Botão 🖨️ PDF: escolha o período (de/até), se mostra os períodos destacados e se inclui a tabela (e quais colunas); depois salve como PDF no diálogo de impressão.</td></tr>
       <tr><td>CSV</td><td>Botão 📑 CSV: exporta para planilha as tarefas de um período (de/até), escolhendo as colunas.</td></tr>
-      <tr><td>Finanças</td><td>Aba 💰 Finanças: <b>Planilha Orçamentária</b> (previsões de gastos e receitas por mês — edite direto nas células), <b>Histórico de Pagamento</b> (transações ligadas aos itens da planilha, com destinatários) e <b>Desembolso</b> (previsto × realizado por item e mês).</td></tr>
+      <tr><td>Finanças</td><td>Aba 💰 Finanças: <b>Planilha Orçamentária</b> (itens de gastos e receitas com a quantia total — edite direto nas células), <b>Histórico de Pagamento</b> (transações ligadas aos itens da planilha, com destinatários) e <b>Desembolso</b> (distribuição prevista por mês — edite o previsto direto em cada célula — comparada com o realizado).</td></tr>
       <tr><td>Recentes</td><td>Botão 🕘 Recentes: reabre um dos últimos 10 projetos abertos ou salvos. Quando o navegador permite acesso a arquivos, abre o próprio arquivo (pode pedir permissão); senão, abre a cópia guardada no navegador no momento em que foi aberto/salvo.</td></tr>
       <tr><td>Zoom (finanças)</td><td>Slider 🔍 na barra das sub-abas de Finanças, ou Ctrl + roda do mouse sobre a tabela; clique na porcentagem para voltar a 100%.</td></tr>
       <tr><td>Atalhos</td><td><kbd>Ctrl+S</kbd> salvar · <kbd>Ctrl+O</kbd> abrir · <kbd>Ctrl+P</kbd> exportar PDF · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> desfazer/refazer · <kbd>Insert</kbd> nova tarefa · <kbd>Delete</kbd> excluir · <kbd>Ctrl</kbd>+roda = zoom</td></tr>
@@ -2108,8 +2112,14 @@ function renderFinance() {
 }
 
 // ---------- Planilha Orçamentária ----------
+// período (meses) exibido no Desembolso
+function periodControls(p) {
+  return `<label class="zoom">Meses de <input type="month" id="finFrom" value="${p.start}"> até <input type="month" id="finTo" value="${p.end}"></label>
+    ${state.finance.months ? '<button data-act="auto-period" title="Voltar a calcular o período automaticamente">Automático</button>' : ''}`;
+}
+// Planilha: itens e quantias; a distribuição mensal prevista é editada no Desembolso
 function budgetHTML(opts = {}) {
-  const f = state.finance, months = opts.months || finMonths(), cur = todayYM(), p = opts.months ? { start: months[0], end: months[months.length - 1] } : finPeriod();
+  const f = state.finance;
   const types = opts.types || ['income', 'expense'], RO = !!opts.print;
   const sumAmt = t => round2(f.items.filter(i => i.type === t).reduce((a, i) => a + i.amount, 0));
   const inc = sumAmt('income'), exp = sumAmt('expense');
@@ -2117,49 +2127,42 @@ function budgetHTML(opts = {}) {
     <button class="primary" data-act="add-expense">+ Gasto</button>
     <button class="income-btn" data-act="add-income">+ Receita</button>
     <div class="sep"></div>
-    <label class="zoom">Meses de <input type="month" id="finFrom" value="${p.start}"> até <input type="month" id="finTo" value="${p.end}"></label>
-    ${f.months ? '<button data-act="auto-period" title="Voltar a calcular o período automaticamente">Automático</button>' : ''}
-    <div class="sep"></div>
     <button data-act="exp-pdf" title="Exportar a planilha em PDF">🖨️ PDF</button><button data-act="exp-csv" title="Exportar a planilha em CSV">📑 CSV</button>
+    <div class="sep"></div>
+    <span class="muted">A distribuição por mês é editada no <a href="#" data-act="go-disb">Desembolso</a></span>
     <span style="flex:1"></span>
     <span class="kpi inc">Receitas <b>${money(inc)}</b></span><span class="kpi exp">Gastos <b>${money(exp)}</b></span>
     <span class="kpi ${inc - exp < 0 ? 'neg' : ''}">Saldo <b>${money(inc - exp)}</b></span>
   </div>`;
   if (!f.items.length) return h + `<div class="fin-empty"><div style="font-size:40px">📋</div><h3>Nenhum item na planilha orçamentária</h3><p>Registre as previsões de gastos e receitas do projeto. Cada item tem um nome, uma quantia total e quanto se prevê de entrada ou saída em cada mês.</p><p><button class="primary" data-act="add-expense">+ Registrar gasto</button> <button class="income-btn" data-act="add-income">+ Registrar receita</button></p></div>`;
-  const ncol = months.length + 5;
-  h += `<div class="fin-scroll"><table class="ft budget"><thead><tr><th class="stk">Item</th><th class="num">Quantia</th>${months.map(m => `<th class="num${m === cur ? ' cur' : ''}">${ymLabel(m)}</th>`).join('')}<th class="num">Distribuído</th><th class="num">Diferença</th><th></th></tr></thead><tbody>`;
-  const monthTotals = {};
+  const ncol = 5;
+  h += `<div class="fin-scroll"><table class="ft budget"><thead><tr><th class="stk">Item</th><th class="num">Quantia</th><th class="num">Distribuído</th><th class="num">Diferença</th><th></th></tr></thead><tbody>`;
   for (const type of types) {
     const groups = groupItems(type); if (!groups.length) continue;
-    const tot = {}; let totAmt = 0, totDist = 0;
+    let totAmt = 0, totDist = 0;
     h += `<tr class="g-type ${type}"><th class="stk" colspan="1">${type === 'income' ? '↑ Receitas' : '↓ Gastos'}</th><th colspan="${ncol - 1}"></th></tr>`;
     for (const [gi, g] of groups.entries()) {
-      const ct = {}; let cAmt = 0, cDist = 0;
-      g.items.forEach(i => { cAmt += i.amount; cDist += planTotal(i); months.forEach(m => ct[m] = (ct[m] || 0) + (i.plan[m] || 0)); });
+      let cAmt = 0, cDist = 0;
+      g.items.forEach(i => { cAmt += i.amount; cDist += planTotal(i); });
       const catCell = RO ? (g.cat ? esc(g.cat) : '<i>Sem categoria</i>')
         : `<input class="fi cat" data-k="c:${type}:${gi}" value="${esc(g.cat)}" placeholder="Sem categoria" title="Renomear a categoria (todos os ${g.items.length} item(ns) dela)">`;
-      h += `<tr class="g-cat"><td class="stk">${catCell}</td><td class="num">${money(cAmt)}</td>${months.map(m => `<td class="num${m === cur ? ' cur' : ''}">${ct[m] ? money(ct[m]) : ''}</td>`).join('')}<td class="num">${money(cDist)}</td><td></td><td></td></tr>`;
+      h += `<tr class="g-cat"><td class="stk">${catCell}</td><td class="num">${money(cAmt)}</td><td class="num">${money(cDist)}</td><td></td><td></td></tr>`;
       for (const i of g.items) {
-        const dist = planTotal(i), diff = round2(i.amount - dist);
-        const outside = Object.keys(i.plan).some(m => m < p.start || m > p.end);
         h += `<tr class="item" data-id="${i.id}"><td class="stk">${RO ? esc(i.name) : `<input class="fi name" data-k="n:${i.id}" value="${esc(i.name)}" title="${esc(i.name)}">`}</td>
           <td class="num">${RO ? moneyIn(i.amount) : `<input class="fi money" data-k="a:${i.id}" value="${moneyIn(i.amount)}" inputmode="decimal">`}</td>
-          ${months.map(m => `<td class="num${m === cur && !RO ? ' cur' : ''}">${RO ? moneyIn(i.plan[m]) : `<input class="fi money" data-k="p:${i.id}:${m}" value="${moneyIn(i.plan[m])}" inputmode="decimal" placeholder="·">`}</td>`).join('')}
-          <td class="num" ${outside ? 'title="Inclui meses fora do período exibido"' : ''}>${money(dist)}${outside ? '*' : ''}</td>
-          <td class="num ${Math.abs(diff) < 0.005 ? 'ok' : 'bad'}">${Math.abs(diff) < 0.005 ? '✓' : (diff > 0 ? 'falta ' : 'excede ') + money(Math.abs(diff))}</td>
+          <td class="num">${money(planTotal(i))}</td>${distDiffCell(i)}
           <td class="acts"><button data-act="edit-item" title="Editar">✎</button><button data-act="del-item" title="Excluir">✕</button></td></tr>`;
       }
-      totAmt += cAmt; totDist += cDist; months.forEach(m => tot[m] = (tot[m] || 0) + (ct[m] || 0));
+      totAmt += cAmt; totDist += cDist;
     }
-    monthTotals[type] = tot;
-    h += `<tr class="g-total ${type}"><td class="stk">Total de ${type === 'income' ? 'receitas' : 'gastos'}</td><td class="num">${money(totAmt)}</td>${months.map(m => `<td class="num${m === cur ? ' cur' : ''}">${tot[m] ? money(tot[m]) : ''}</td>`).join('')}<td class="num">${money(totDist)}</td><td></td><td></td></tr>`;
+    h += `<tr class="g-total ${type}"><td class="stk">Total de ${type === 'income' ? 'receitas' : 'gastos'}</td><td class="num">${money(totAmt)}</td><td class="num">${money(totDist)}</td><td></td><td></td></tr>`;
   }
-  if (opts.bal === false || types.length < 2) return h + '</tbody></table></div>';
-  let acc = 0;
-  const bal = months.map(m => round2((monthTotals.income?.[m] || 0) - (monthTotals.expense?.[m] || 0)));
-  h += `<tr class="g-bal"><td class="stk">Saldo previsto do mês</td><td></td>${bal.map((v, k) => `<td class="num${months[k] === cur ? ' cur' : ''} ${v < 0 ? 'neg' : ''}">${v ? money(v) : ''}</td>`).join('')}<td></td><td></td><td></td></tr>`;
-  h += `<tr class="g-bal"><td class="stk">Saldo acumulado</td><td></td>${bal.map((v, k) => { acc = round2(acc + v); return `<td class="num${months[k] === cur ? ' cur' : ''} ${acc < 0 ? 'neg' : ''}">${money(acc)}</td>`; }).join('')}<td></td><td></td><td></td></tr>`;
   return h + '</tbody></table></div>';
+}
+// quantia do item × total distribuído nos meses
+function distDiffCell(i) {
+  const diff = round2(i.amount - planTotal(i)), ok = Math.abs(diff) < 0.005;
+  return `<td class="num ${ok ? 'ok' : 'bad'}">${ok ? '✓' : (diff > 0 ? 'falta ' : 'excede ') + money(Math.abs(diff))}</td>`;
 }
 
 // ---------- Histórico de Pagamento ----------
@@ -2261,14 +2264,17 @@ function pctLabel(real, prev) {
   if (v === 0 && real > 0) v = 0.1;
   return PCT1.format(v);
 }
-function dcell(real, prev, cur) {
+// célula do desembolso; com edit = { id, m } o previsto do mês é editável na própria célula
+function dcell(real, prev, cur, edit) {
   const c = cur ? ' cur' : '';
-  if (!prev && !real) return `<td class="dc empty${c}">·</td>`;
-  if (!prev) return `<td class="dc unplanned${c}" title="${real > 0 ? 'Valor realizado sem previsão neste mês' : 'Estorno'}"><div class="dtop"><b>${moneyShort(real)}</b></div><small>não previsto</small></td>`;
+  const inp = edit ? `<input class="fi money dp" data-k="p:${edit.id}:${edit.m}" value="${moneyIn(prev)}" inputmode="decimal" placeholder="previsto" title="Previsto para ${ymLabel(edit.m)} — edite aqui">` : '';
+  if (!prev && !real) return edit ? `<td class="dc ed empty${c}">${inp}</td>` : `<td class="dc empty${c}">·</td>`;
+  if (!prev) return `<td class="dc${edit ? ' ed' : ''} unplanned${c}" title="${real > 0 ? 'Valor realizado sem previsão neste mês' : 'Estorno'}"><div class="dtop"><b>${moneyShort(real)}</b>${edit ? '<small>não previsto</small>' : ''}</div>${edit ? inp : '<small>não previsto</small>'}</td>`;
   const p = real / prev * 100, diff = round2(real - prev);
   const cls = diff > 0 ? 'over' : diff === 0 ? 'done' : real > 0 ? 'part' : 'none';
   const pt = pctLabel(real, prev);
-  return `<td class="dc ${cls}${c}" title="Realizado ${money(real)} de ${money(prev)} previstos (${pt}%)"><div class="dtop"><b>${pt}%</b><small>${moneyShort(real)} / ${moneyShort(prev)}</small></div><div class="dbar"><i style="width:${clamp(p, 0, 100)}%"></i></div></td>`;
+  const info = edit ? `<small title="Realizado">${moneyShort(real)}</small>` : `<small>${moneyShort(real)} / ${moneyShort(prev)}</small>`;
+  return `<td class="dc${edit ? ' ed' : ''} ${cls}${c}" title="Realizado ${money(real)} de ${money(prev)} previstos (${pt}%)"><div class="dtop"><b>${pt}%</b>${info}</div>${inp}<div class="dbar"><i style="width:${clamp(p, 0, 100)}%"></i></div></td>`;
 }
 function disbHTML(opts = {}) {
   const dt = opts.type || disbType;
@@ -2286,7 +2292,7 @@ function disbHTML(opts = {}) {
   let h = `<div class="fin-toolbar">
     <div class="seg" id="disbType"><button data-v="expense" class="${dt === 'expense' ? 'on' : ''}">↓ Gastos</button><button data-v="income" class="${dt === 'income' ? 'on' : ''}">↑ Receitas</button></div>
     <div class="sep"></div>
-    <span class="muted">${ymLong(p.start)} → ${ymLong(p.end)}</span>
+    ${opts.print ? `<span class="muted">${ymLong(p.start)} → ${ymLong(p.end)}</span>` : periodControls(p)}
     <div class="sep"></div>
     <button data-act="exp-pdf" title="Exportar o desembolso em PDF">🖨️ PDF</button><button data-act="exp-csv" title="Exportar o desembolso em CSV">📑 CSV</button>
     <span style="flex:1"></span>
@@ -2296,9 +2302,9 @@ function disbHTML(opts = {}) {
     <span class="kpi" title="Total recebido menos total pago (todas as transações)">Caixa <b class="${recIn - paidOut < 0 ? 'neg' : ''}">${money(recIn - paidOut)}</b></span>
   </div>`;
   if (orphan || outside) h += `<div class="fin-note">⚠️ ${[orphan && `${orphan} transação(ões) sem item da planilha`, outside && `${outside} transação(ões) fora do período exibido (contam apenas na coluna Total)`].filter(Boolean).join(' · ')}</div>`;
-  if (!items.length) return h + `<div class="fin-empty"><div style="font-size:40px">📊</div><h3>Nada para mostrar</h3><p>O desembolso compara a previsão mensal da <a href="#" data-act="go-budget">Planilha Orçamentária</a> com o que foi registrado no <a href="#" data-act="go-history">Histórico de Pagamento</a>.</p></div>`;
-  h += `<div class="fin-legend"><span><i class="lg part"></i>parcial</span><span><i class="lg done"></i>100% ${word}</span><span><i class="lg over"></i>acima do previsto</span><span><i class="lg unplanned"></i>não previsto no mês</span><span class="muted">Cada célula: % ${word} · realizado / previsto no mês</span></div>`;
-  h += `<div class="fin-scroll"><table class="ft disb"><thead><tr><th class="stk">Item</th>${months.map(m => `<th class="${m === cur ? 'cur' : ''}">${ymLabel(m)}</th>`).join('')}<th>Total (orçamento)</th></tr></thead><tbody>`;
+  if (!items.length) return h + `<div class="fin-empty"><div style="font-size:40px">📊</div><h3>Nada para mostrar</h3><p>Cadastre os itens na <a href="#" data-act="go-budget">Planilha Orçamentária</a>; aqui você distribui a previsão de cada um pelos meses e compara com o que foi registrado no <a href="#" data-act="go-history">Histórico de Pagamento</a>.</p></div>`;
+  h += `<div class="fin-legend"><span><i class="lg part"></i>parcial</span><span><i class="lg done"></i>100% ${word}</span><span><i class="lg over"></i>acima do previsto</span><span><i class="lg unplanned"></i>não previsto no mês</span><span class="muted">${opts.print ? `Cada célula: % ${word} · realizado / previsto no mês` : `Cada célula: % ${word} · realizado · <b>previsto do mês (editável)</b>`}</span></div>`;
+  h += `<div class="fin-scroll"><table class="ft disb"><thead><tr><th class="stk">Item</th>${months.map(m => `<th class="${m === cur ? 'cur' : ''}">${ymLabel(m)}</th>`).join('')}<th>Total (orçamento)</th><th class="num">Distribuição</th></tr></thead><tbody>`;
   const totP = {}, totR = {}; let tBudget = 0, tReal = 0;
   for (const g of groupItems(dt)) {
     const cp = {}, cr = {}; let cB = 0, cR = 0;
@@ -2307,13 +2313,20 @@ function disbHTML(opts = {}) {
       const r = rm.get(i.id) || { total: 0, m: {} };
       months.forEach(m => { cp[m] = (cp[m] || 0) + (i.plan[m] || 0); cr[m] = (cr[m] || 0) + (r.m[m] || 0); });
       cB += i.amount; cR += r.total;
-      rows += `<tr class="item"><td class="stk" title="${esc(i.name)}">${esc(i.name)}</td>${months.map(m => dcell(r.m[m] || 0, i.plan[m] || 0, m === cur)).join('')}${dcell(r.total, i.amount, false).replace('class="dc', 'class="dc tot')}</tr>`;
+      rows += `<tr class="item"><td class="stk" title="${esc(i.name)}">${esc(i.name)}</td>${months.map(m => dcell(r.m[m] || 0, i.plan[m] || 0, m === cur, opts.print ? null : { id: i.id, m })).join('')}${dcell(r.total, i.amount, false).replace('class="dc', 'class="dc tot')}${distDiffCell(i)}</tr>`;
     }
-    h += `<tr class="g-cat"><td class="stk">${g.cat ? esc(g.cat) : '<i>Sem categoria</i>'}</td>${months.map(m => dcell(round2(cr[m] || 0), round2(cp[m] || 0), m === cur)).join('')}${dcell(round2(cR), round2(cB), false).replace('class="dc', 'class="dc tot')}</tr>` + rows;
+    h += `<tr class="g-cat"><td class="stk">${g.cat ? esc(g.cat) : '<i>Sem categoria</i>'}</td>${months.map(m => dcell(round2(cr[m] || 0), round2(cp[m] || 0), m === cur)).join('')}${dcell(round2(cR), round2(cB), false).replace('class="dc', 'class="dc tot')}<td></td></tr>` + rows;
     months.forEach(m => { totP[m] = (totP[m] || 0) + (cp[m] || 0); totR[m] = (totR[m] || 0) + (cr[m] || 0); });
     tBudget += cB; tReal += cR;
   }
-  h += `<tr class="g-total"><td class="stk">Total</td>${months.map(m => dcell(round2(totR[m] || 0), round2(totP[m] || 0), m === cur)).join('')}${dcell(round2(tReal), round2(tBudget), false).replace('class="dc', 'class="dc tot')}</tr>`;
+  h += `<tr class="g-total"><td class="stk">Total</td>${months.map(m => dcell(round2(totR[m] || 0), round2(totP[m] || 0), m === cur)).join('')}${dcell(round2(tReal), round2(tBudget), false).replace('class="dc', 'class="dc tot')}<td></td></tr>`;
+  if (opts.bal !== false) { // saldo previsto (receitas − gastos previstos de cada mês)
+    const planOf = (type, m) => f.items.filter(i => i.type === type).reduce((a, i) => a + (i.plan[m] || 0), 0);
+    const bal = months.map(m => round2(planOf('income', m) - planOf('expense', m)));
+    let acc = 0;
+    h += `<tr class="g-bal"><td class="stk" title="Receitas previstas menos gastos previstos no mês">Saldo previsto do mês</td>${bal.map((v, k) => `<td class="num${months[k] === cur ? ' cur' : ''} ${v < 0 ? 'neg' : ''}">${v ? money(v) : ''}</td>`).join('')}<td></td><td></td></tr>`;
+    h += `<tr class="g-bal"><td class="stk">Saldo previsto acumulado</td>${bal.map((v, k) => { acc = round2(acc + v); return `<td class="num${months[k] === cur ? ' cur' : ''} ${acc < 0 ? 'neg' : ''}">${money(acc)}</td>`; }).join('')}<td></td><td></td></tr>`;
+  }
   return h + '</tbody></table></div>';
 }
 
@@ -2365,6 +2378,7 @@ finEl.addEventListener('click', e => {
     }
     case 'go-budget': finSub = 'budget'; render(); break;
     case 'go-history': finSub = 'history'; render(); break;
+    case 'go-disb': finSub = 'disb'; prefs.finSub = finSub; savePrefs(); render(); break;
   }
 });
 finEl.addEventListener('dblclick', e => {
@@ -2684,10 +2698,10 @@ function openFinExport(view, fmt) {
   feCtx = { view, fmt };
   $('#feTitle').textContent = `Exportar — ${FIN_VIEW_NAME[view]}`;
   const isH = view === 'history';
-  $('#fePeriodM').style.display = isH ? 'none' : '';
+  $('#fePeriodM').style.display = view === 'disb' ? '' : 'none';
   $('#fePeriodD').style.display = isH ? '' : 'none';
   $('#feTypes').style.display = isH ? 'none' : '';
-  $('#feBalWrap').style.display = view === 'budget' ? '' : 'none';
+  $('#feBalWrap').style.display = view === 'disb' ? '' : 'none';
   $('#feFiltWrap').style.display = isH ? '' : 'none';
   $('#feColsWrap').style.display = isH ? '' : 'none';
   const p = finPeriod(); feForm.mFrom.value = p.start; feForm.mTo.value = p.end;
@@ -2710,7 +2724,7 @@ function updateFeInfo() {
   } else {
     const n = state.finance.items.filter(i => o.types.includes(i.type)).length;
     ok = o.types.length > 0 && n > 0;
-    msg = !o.types.length ? 'Marque receitas e/ou gastos.' : `${o.months.length} mês(es) · ${n} item(ns)`;
+    msg = !o.types.length ? 'Marque receitas e/ou gastos.' : feCtx.view === 'disb' ? `${o.months.length} mês(es) · ${n} item(ns)` : `${n} item(ns)`;
   }
   info.textContent = msg; info.style.color = ok ? '' : 'var(--danger)'; go.disabled = !ok;
 }
@@ -2729,10 +2743,10 @@ feForm.addEventListener('submit', e => {
 function buildFinPrintHTML(view, o) {
   let body, sub;
   if (view === 'budget') {
-    body = budgetHTML({ print: true, months: o.months, types: o.types, bal: o.bal });
-    sub = `${ymLong(o.months[0])} → ${ymLong(o.months[o.months.length - 1])}`;
+    body = budgetHTML({ print: true, types: o.types });
+    sub = 'Itens e quantias';
   } else if (view === 'disb') {
-    body = o.types.map(t => `<h2 class="psec">${t === 'income' ? '↑ Receitas' : '↓ Gastos'}</h2>` + disbHTML({ print: true, months: o.months, type: t })).join('');
+    body = o.types.map((t, k) => `<h2 class="psec">${t === 'income' ? '↑ Receitas' : '↓ Gastos'}</h2>` + disbHTML({ print: true, months: o.months, type: t, bal: o.bal && k === o.types.length - 1 })).join('');
     sub = `${ymLong(o.months[0])} → ${ymLong(o.months[o.months.length - 1])}`;
   } else {
     body = historyHTML({ print: true, from: o.from, to: o.to, filters: o.filters, cols: o.cols });
@@ -2781,23 +2795,15 @@ function exportFinPDF(view, o) {
 function buildFinCSV(view, o, sep) {
   const rows = [];
   if (view === 'budget') {
-    rows.push(['Tipo', 'Categoria', 'Item', 'Quantia', ...o.months.map(ymLabel), 'Distribuído', 'Diferença']);
-    const tot = {};
+    rows.push(['Tipo', 'Categoria', 'Item', 'Quantia', 'Distribuído', 'Diferença']);
     for (const type of o.types) {
-      const tt = {}; let tA = 0, tD = 0;
+      let tA = 0, tD = 0;
       for (const i of state.finance.items.filter(x => x.type === type)) {
         const dist = planTotal(i);
-        rows.push([type === 'income' ? 'Receita' : 'Gasto', i.category, i.name, csvNum(i.amount, sep), ...o.months.map(m => i.plan[m] ? csvNum(i.plan[m], sep) : ''), csvNum(dist, sep), csvNum(i.amount - dist, sep)]);
-        tA += i.amount; tD += dist; o.months.forEach(m => tt[m] = (tt[m] || 0) + (i.plan[m] || 0));
+        rows.push([type === 'income' ? 'Receita' : 'Gasto', i.category, i.name, csvNum(i.amount, sep), csvNum(dist, sep), csvNum(i.amount - dist, sep)]);
+        tA += i.amount; tD += dist;
       }
-      rows.push([`Total de ${type === 'income' ? 'receitas' : 'gastos'}`, '', '', csvNum(tA, sep), ...o.months.map(m => csvNum(tt[m] || 0, sep)), csvNum(tD, sep), '']);
-      tot[type] = tt;
-    }
-    if (o.bal && o.types.length === 2) {
-      let acc = 0;
-      const bal = o.months.map(m => round2((tot.income[m] || 0) - (tot.expense[m] || 0)));
-      rows.push(['Saldo previsto do mês', '', '', '', ...bal.map(v => csvNum(v, sep)), '', '']);
-      rows.push(['Saldo acumulado', '', '', '', ...bal.map(v => csvNum(acc = round2(acc + v), sep)), '', '']);
+      rows.push([`Total de ${type === 'income' ? 'receitas' : 'gastos'}`, '', '', csvNum(tA, sep), csvNum(tD, sep), '']);
     }
   } else if (view === 'disb') {
     const rm = realMap(), pct = (r, p) => p ? csvNum(r / p * 100, sep) : '';
@@ -2807,6 +2813,13 @@ function buildFinCSV(view, o, sep) {
       rows.push([type === 'income' ? 'Receita' : 'Gasto', i.category, i.name,
         ...o.months.flatMap(m => [csvNum(i.plan[m] || 0, sep), csvNum(r.m[m] || 0, sep), pct(r.m[m] || 0, i.plan[m] || 0)]),
         csvNum(i.amount, sep), csvNum(r.total, sep), pct(r.total, i.amount)]);
+    }
+    if (o.bal) {
+      let acc = 0;
+      const planOf = (type, m) => state.finance.items.filter(i => i.type === type).reduce((a, i) => a + (i.plan[m] || 0), 0);
+      const bal = o.months.map(m => round2(planOf('income', m) - planOf('expense', m)));
+      rows.push(['Saldo previsto do mês', '', '', ...bal.flatMap(v => [csvNum(v, sep), '', '']), '', '', '']);
+      rows.push(['Saldo previsto acumulado', '', '', ...bal.flatMap(v => [csvNum(acc = round2(acc + v), sep), '', '']), '', '', '']);
     }
   } else {
     const cols = [...HIST_COLS, ...HIST_CSV_EXTRA].filter(c => o.cols.includes(c.key));
