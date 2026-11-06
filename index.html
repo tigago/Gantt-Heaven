@@ -237,6 +237,8 @@ button.income-btn:hover{background:#eaf7ee}
 .ft.hist tr.g-month td{background:#f7f8fb;font-weight:700;height:30px;color:#3c4458}
 .ft.hist tr.g-month td span{font-weight:500;color:var(--muted);margin-left:10px}
 .ft.hist tr.tx{cursor:default}
+.ft.hist .acts{width:auto;white-space:nowrap}
+.ft.hist .acts button.newpay{font-size:11.5px;color:var(--accent)}
 .ft.hist td.num.out{color:#c93c37;font-weight:600}
 .ft.hist td.num.in{color:#1a7f37;font-weight:600}
 .ft.hist td.ctr{text-align:center;color:#1a7f37}
@@ -2280,7 +2282,7 @@ function historyHTML(opts = {}) {
       h += `<tr class="g-month"><td colspan="${ncol}">${ymLong(m)} <span>${mo ? `saídas ${money(mo)}` : ''}${mo && mi ? ' · ' : ''}${mi ? `entradas ${money(mi)}` : ''}</span></td></tr>`;
     }
     const it = finItem(t.itemId), r = finRec(t.recipientId);
-    h += `<tr class="tx${!RO && t.id === lastTxEdited ? ' edited' : ''}" data-id="${t.id}">${cols.map(c => cell(c.key, t, it, r)).join('')}${RO ? '' : '<td class="acts"><button data-act="edit-tx" title="Editar">✎</button><button data-act="del-tx" title="Excluir">✕</button></td>'}</tr>`;
+    h += `<tr class="tx${!RO && t.id === lastTxEdited ? ' edited' : ''}" data-id="${t.id}">${cols.map(c => cell(c.key, t, it, r)).join('')}${RO ? '' : `<td class="acts">${t.direction === 'out' ? '<button data-act="new-pay" class="newpay" title="Novo pagamento — abre uma nova transação com o mesmo valor, item, destinatário e contrato">＋ Novo pagamento</button>' : ''}<button data-act="edit-tx" title="Editar">✎</button><button data-act="del-tx" title="Excluir">✕</button></td>`}</tr>`;
   }
   if (!list.length) h += `<tr><td colspan="${ncol}" class="muted" style="text-align:center;padding:20px">Nenhuma transação com esses filtros.</td></tr>`;
   return h + '</tbody></table></div>';
@@ -2421,6 +2423,7 @@ finEl.addEventListener('click', e => {
     case 'auto-period': fmutate(() => state.finance.months = null); break;
     case 'add-tx': openTxDlg(null); break;
     case 'edit-tx': openTxDlg(id); break;
+    case 'new-pay': openTxDlg(null, id); break;
     case 'del-tx': { const t = state.finance.transactions.find(x => x.id === id); if (t && confirm(`Excluir a transação de ${money(t.amount)} em ${fmtDateBR(t.date)}?`)) fmutate(() => state.finance.transactions = state.finance.transactions.filter(x => x.id !== id)); break; }
     case 'recipients': openRecDlg(); break;
     case 'clear-filters': finFilter = { month: '', item: '', rec: '', dir: '' }; render(); break;
@@ -2623,22 +2626,24 @@ function fillTxSelects(itemId, recId) {
   txForm.item.innerHTML = `<option value="">— escolha o item —</option><optgroup label="↓ Gastos">${opt('expense')}</optgroup><optgroup label="↑ Receitas">${opt('income')}</optgroup>`;
   txForm.recipient.innerHTML = `<option value="">— nenhum —</option>${state.finance.recipients.map(r => `<option value="${r.id}"${r.id === recId ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}<option value="__new">+ Novo destinatário…</option>`;
 }
-function openTxDlg(id) {
+// id: edita a transação; fromId: nova transação copiando valor, item, destinatário e contrato de outra (o "novo pagamento")
+function openTxDlg(id, fromId) {
   if (!state.finance.items.length) { toast('Cadastre itens na Planilha Orçamentária primeiro'); finSub = 'budget'; render(); return; }
   const t = id ? state.finance.transactions.find(x => x.id === id) : null;
-  dlgTx = { id: t ? t.id : null, dir: t ? t.direction : 'out', dirTouched: !!t };
-  $('#txTitle').textContent = t ? 'Editar transação' : 'Nova transação';
+  const src = !t && fromId ? state.finance.transactions.find(x => x.id === fromId) : null;
+  dlgTx = { id: t ? t.id : null, dir: t ? t.direction : src ? src.direction : 'out', dirTouched: !!(t || src) };
+  $('#txTitle').textContent = t ? 'Editar transação' : src ? 'Novo pagamento' : 'Nova transação';
   txForm.date.value = t ? t.date : fromIdx(todayIdx());
-  txForm.amount.value = t ? numStr(t.amount) : '';
-  fillTxSelects(t ? t.itemId : finFilter.item || '', t ? t.recipientId : (finFilter.rec !== '__none' && finFilter.rec) || '');
-  dlgTx.contract = t ? t.contract : false; dlgTx.hadContractDoc = !!(t && t.contractDoc);
+  txForm.amount.value = t ? numStr(t.amount) : src ? numStr(src.amount) : '';
+  fillTxSelects(t ? t.itemId : src ? src.itemId : finFilter.item || '', t ? t.recipientId : src ? src.recipientId : (finFilter.rec !== '__none' && finFilter.rec) || '');
+  dlgTx.contract = t ? t.contract : src ? !!src.contract : false; dlgTx.hadContractDoc = !!(t && t.contractDoc);
   txForm.notes.value = t ? t.notes : '';
-  dlgTx.att = Object.fromEntries(ATT_KINDS.map(k => [k, t && t[k] ? { ...t[k] } : null]));
+  dlgTx.att = Object.fromEntries(ATT_KINDS.map(k => [k, t && t[k] ? { ...t[k] } : src && k === 'contractDoc' && src[k] ? { ...src[k] } : null]));
   renderTxAtt();
   $('#txDelete').style.display = t ? '' : 'none';
   $('#txAgain').style.display = t ? 'none' : '';
   setTxDir(dlgTx.dir, false);
-  txDlg.showModal(); (t ? txForm.amount : txForm.item).focus();
+  txDlg.showModal(); (t ? txForm.amount : src ? txForm.date : txForm.item).focus();
 }
 function updateTxHint() {
   const it = finItem(txForm.item.value), el = $('#txHint');
