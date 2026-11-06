@@ -749,7 +749,7 @@ function deserialize(o) {
       // seções: etapas "tickáveis" dentro do período da tarefa (off = dias a partir do início da tarefa)
       sections: (Array.isArray(t.sections) ? t.sections : []).map(x => ({ id: String(x.id || uid()), name: String(x.name ?? 'Seção'), off: Math.max(0, Math.round(+x.off || 0)), dur: Math.max(1, Math.round(+x.dur || 1)), done: !!x.done, deps: (Array.isArray(x.deps) ? x.deps : []).map(String) })) };
   });
-  const tids = new Set(tasks.map(t => t.id));
+  const tids = new Set([...tasks.map(t => t.id), ...tasks.flatMap(t => t.sections.map(x => x.id))]); // tarefas e seções
   tasks.forEach(t => t.deps = [...new Set(t.deps)].filter(d => tids.has(d) && d !== t.id));
   const view = { columns: ['day', 'week', 'month'].includes(o.view && o.view.columns) ? o.view.columns : 'day' };
   const marks = (o.marks || []).map(m => ({ s: toIdx(m.from), e: toIdx(m.to) + 1 })).filter(m => Number.isFinite(m.s) && Number.isFinite(m.e) && m.e > m.s);
@@ -759,29 +759,8 @@ function deserialize(o) {
 function persist() { try { localStorage.setItem(STORE, JSON.stringify(serialize())); } catch (e) {} }
 
 // ---------- Agendamento / dependências ----------
-function minStart(t) {
-  let m = -Infinity;
-  for (const d of t.deps) { const p = task(d); if (p) m = Math.max(m, p.start + p.duration); }
-  return m;
-}
-// empurra sucessores para que comecem após o fim dos predecessores
-function schedule() {
-  const map = new Map(state.tasks.map(t => [t.id, t]));
-  const done = new Set(), visiting = new Set();
-  const visit = t => {
-    if (done.has(t.id) || visiting.has(t.id)) return;
-    visiting.add(t.id);
-    let m = -Infinity;
-    t.deps = t.deps.filter(d => map.has(d));
-    for (const d of t.deps) { const p = map.get(d); visit(p); m = Math.max(m, p.start + p.duration); }
-    if (t.start < m) t.start = m;
-    visiting.delete(t.id); done.add(t.id);
-  };
-  state.tasks.forEach(visit);
-  state.tasks.forEach(fitSections);
-  scheduleSections();
-  state.tasks.forEach(sectionProgress);
-}
+// Dependências podem ligar tarefas e seções em qualquer combinação: tarefa→tarefa, seção→seção,
+// seção→tarefa e tarefa→seção. O sucessor só começa depois do fim do predecessor.
 // todas as seções do projeto por id → { t: tarefa, s: seção }
 function secMap() {
   const m = new Map();
@@ -789,47 +768,51 @@ function secMap() {
   return m;
 }
 const secStart = r => r.t.start + r.s.off, secEnd = r => r.t.start + r.s.off + r.s.dur; // fim exclusivo
-// empurra as seções para começarem após o fim das seções de que dependem (sem sair do período da tarefa)
-function scheduleSections() {
-  const m = secMap(), done = new Set(), visiting = new Set();
-  const visit = r => {
-    const x = r.s; if (done.has(x.id) || visiting.has(x.id)) return;
-    visiting.add(x.id);
-    x.deps = [...new Set(x.deps || [])].filter(d => m.has(d) && d !== x.id);
-    let me = -Infinity;
-    for (const d of x.deps) { const pr = m.get(d); visit(pr); me = Math.max(me, secEnd(pr)); }
-    if (secStart(r) < me) x.off = clamp(me - r.t.start, 0, r.t.duration - x.dur); // se não couber, fica no fim da tarefa (conflito)
-    visiting.delete(x.id); done.add(x.id);
-  };
-  m.forEach(visit);
+// nó do grafo (tarefa ou seção) e seu fim (exclusivo)
+function depNode(id, m = secMap()) { const t = task(id); if (t) return { t }; const r = m.get(id); return r ? { t: r.t, s: r.s } : null; }
+const nodeEnd = n => n.s ? secEnd(n) : n.t.start + n.t.duration;
+const nodeName = n => n.s ? `${n.s.name} (${n.t.name})` : n.t.name;
+// início mínimo (absoluto) de uma tarefa pelas suas dependências
+function minStart(t, m = secMap()) {
+  let me = -Infinity;
+  for (const d of t.deps) { const p = depNode(d, m); if (p) me = Math.max(me, nodeEnd(p)); }
+  return me;
 }
 // início mínimo (absoluto) de uma seção pelas suas dependências
 function secMinStart(r, m = secMap()) {
   let me = -Infinity;
-  for (const d of r.s.deps || []) { const pr = m.get(d); if (pr) me = Math.max(me, secEnd(pr)); }
+  for (const d of r.s.deps || []) { const p = depNode(d, m); if (p) me = Math.max(me, nodeEnd(p)); }
   return me;
 }
-function secDependsOn(aId, bId, m = secMap(), seen = new Set()) {
-  if (aId === bId) return true;
-  if (seen.has(aId)) return false; seen.add(aId);
-  const a = m.get(aId); if (!a) return false;
-  return (a.s.deps || []).some(d => secDependsOn(d, bId, m, seen));
-}
-function addSecDependency(fromId, toId) {
-  if (fromId === toId) return;
-  const m = secMap(), to = m.get(toId), from = m.get(fromId); if (!to || !from) return;
-  if ((to.s.deps || []).includes(fromId)) { toast('Essa dependência já existe'); return; }
-  if (secDependsOn(fromId, toId, m)) { toast('⚠️ Isso criaria uma dependência circular'); return; }
-  mutate(() => { (to.s.deps = to.s.deps || []).push(fromId); });
-  const r = secMap().get(toId);
-  if (secStart(r) < secEnd(secMap().get(fromId))) toast(`⚠️ "${r.s.name}" não cabe depois de "${from.s.name}" dentro do período de "${r.t.name}"`);
-  else toast(`"${to.s.name}" agora depende de "${from.s.name}"`);
-}
-// progresso da tarefa pelas seções concluídas, proporcional à duração de cada seção
-function sectionProgress(t) {
-  if (!t.sections || !t.sections.length) return;
-  const tot = t.sections.reduce((a, x) => a + x.dur, 0), ok = t.sections.filter(x => x.done).reduce((a, x) => a + x.dur, 0);
-  t.progress = tot ? Math.round(ok / tot * 100) : 0;
+// empurra sucessores (tarefas e seções) para que comecem após o fim dos predecessores
+function schedule() {
+  const m = secMap(), tdone = new Set(), tvis = new Set(), sdone = new Set(), svis = new Set();
+  const ownSecs = t => new Set((t.sections || []).map(x => x.id));
+  const visitNode = id => { const t = task(id); if (t) return visitT(t); const r = m.get(id); if (r) visitS(r); };
+  const visitT = t => {
+    if (tdone.has(t.id) || tvis.has(t.id)) return;
+    tvis.add(t.id);
+    const own = ownSecs(t);
+    t.deps = [...new Set(t.deps)].filter(d => d !== t.id && !own.has(d) && (task(d) || m.has(d))); // tarefa não depende das próprias seções
+    let me = -Infinity;
+    for (const d of t.deps) { visitNode(d); const p = depNode(d, m); if (p) me = Math.max(me, nodeEnd(p)); }
+    if (t.start < me) t.start = me;
+    fitSections(t);
+    tvis.delete(t.id); tdone.add(t.id);
+  };
+  const visitS = r => {
+    const x = r.s; if (sdone.has(x.id) || svis.has(x.id)) return;
+    svis.add(x.id);
+    visitT(r.t); // a posição da seção depende da tarefa dela
+    x.deps = [...new Set(x.deps || [])].filter(d => d !== x.id && d !== r.t.id && (task(d) || m.has(d)));
+    let me = -Infinity;
+    for (const d of x.deps) { visitNode(d); const p = depNode(d, m); if (p) me = Math.max(me, nodeEnd(p)); }
+    if (secStart(r) < me) x.off = clamp(me - r.t.start, 0, r.t.duration - x.dur); // se não couber, fica no fim da tarefa (conflito)
+    svis.delete(x.id); sdone.add(x.id);
+  };
+  state.tasks.forEach(visitT);
+  m.forEach(visitS);
+  state.tasks.forEach(sectionProgress);
 }
 // mantém as seções dentro do período da tarefa
 function fitSections(t) {
@@ -839,21 +822,35 @@ function fitSections(t) {
     x.dur = clamp(x.dur, 1, t.duration - x.off);
   }
 }
-// verdadeiro se "a" depende (direta ou indiretamente) de "b"
-function dependsOn(aId, bId, seen = new Set()) {
+// progresso da tarefa pelas seções concluídas, proporcional à duração de cada seção
+function sectionProgress(t) {
+  if (!t.sections || !t.sections.length) return;
+  const tot = t.sections.reduce((a, x) => a + x.dur, 0), ok = t.sections.filter(x => x.done).reduce((a, x) => a + x.dur, 0);
+  t.progress = tot ? Math.round(ok / tot * 100) : 0;
+}
+// verdadeiro se "a" depende (direta ou indiretamente) de "b"; uma seção depende implicitamente da sua tarefa
+function dependsOn(aId, bId, m = secMap(), seen = new Set()) {
   if (aId === bId) return true;
   if (seen.has(aId)) return false; seen.add(aId);
-  const a = task(aId); if (!a) return false;
-  return a.deps.some(d => dependsOn(d, bId, seen));
+  const n = depNode(aId, m); if (!n) return false;
+  const deps = n.s ? [...(n.s.deps || []), n.t.id] : n.t.deps;
+  return deps.some(d => dependsOn(d, bId, m, seen));
 }
+// "toId" (tarefa ou seção) passa a depender de "fromId" (tarefa ou seção)
 function addDependency(fromId, toId) {
   if (fromId === toId) return;
-  const t = task(toId);
-  if (t.deps.includes(fromId)) { toast('Essa dependência já existe'); return; }
-  if (dependsOn(fromId, toId)) { toast('⚠️ Isso criaria uma dependência circular'); return; }
-  mutate(() => t.deps.push(fromId));
-  toast(`"${task(toId).name}" agora depende de "${task(fromId).name}"`);
+  const m = secMap(), to = depNode(toId, m), from = depNode(fromId, m); if (!to || !from) return;
+  if (!to.s && from.s && from.t.id === to.t.id) { toast('Uma tarefa não pode depender das próprias seções'); return; }
+  if (to.s && !from.s && from.t.id === to.t.id) { toast('A seção já fica dentro do período da própria tarefa'); return; }
+  const list = to.s ? (to.s.deps = to.s.deps || []) : to.t.deps;
+  if (list.includes(fromId)) { toast('Essa dependência já existe'); return; }
+  if (dependsOn(fromId, toId, m)) { toast('⚠️ Isso criaria uma dependência circular'); return; }
+  mutate(() => list.push(fromId));
+  const m2 = secMap(), t2 = depNode(toId, m2), f2 = depNode(fromId, m2);
+  if (t2.s && secStart(t2) < nodeEnd(f2)) toast(`⚠️ "${t2.s.name}" não cabe depois de "${nodeName(f2)}" dentro do período de "${t2.t.name}"`);
+  else toast(`"${nodeName(t2)}" agora depende de "${nodeName(f2)}"`);
 }
+const addSecDependency = addDependency;
 
 // ---------- Histórico ----------
 function mutate(fn) { const prev = snap(); fn(); schedule(); finish(prev); }
@@ -878,7 +875,7 @@ function computeRange() {
   let start = min - 14; start -= mod(start + 3, 7); // alinha na segunda-feira
   const visDays = Math.ceil(Math.max(0, scroller.clientWidth - LEFT) / dayW) + 2;
   let days = Math.max(max + 45 - start, visDays);
-  if (drag && drag.type !== 'link') { start = drag.rangeStart; days = Math.max(max + 45 - start, visDays, range.days); }
+  if (drag && drag.rangeStart !== undefined) { start = drag.rangeStart; days = Math.max(max + 45 - start, visDays, range.days); } // durante o arraste o início fica fixo
   return { start, days };
 }
 
@@ -1123,29 +1120,21 @@ function renderChart() {
   const todayLine = showToday() ? `<line x1="${tx}" x2="${tx}" y1="0" y2="${H}" stroke="${TODAY_COLOR}" stroke-width="1.5" pointer-events="none"/>` : '';
 
   const index = new Map(); rows.forEach((r, i) => { if (!r.s) index.set(r.t.id, i); });
-  tasks.forEach(t => {
-    const it = index.get(t.id);
-    for (const d of t.deps) {
-      const p = task(d); if (!p || !index.has(d)) continue; // dependência com tarefa oculta pelo filtro não é desenhada
-      const dpath = linkPath(p, t, index.get(d), it);
-      links += `<path class="link-hit" d="${dpath}" data-from="${d}" data-to="${t.id}"><title>${esc(p.name)} → ${esc(t.name)} (clique para remover)</title></path><path class="link" d="${dpath}" marker-end="url(#arr)"/>`;
+
+  // setas de dependência (tarefas e seções, em qualquer combinação) — só quando as duas linhas estão visíveis;
+  // vermelha quando a seção não cabe depois do predecessor dentro do período da sua tarefa
+  const rowOf = new Map(); rows.forEach((r, i) => rowOf.set(r.s ? r.s.id : r.t.id, i));
+  const sm = secMap();
+  rows.forEach(r => {
+    const me = r.s ? { t: r.t, s: r.s } : { t: r.t }, deps = r.s ? r.s.deps || [] : r.t.deps, myId = r.s ? r.s.id : r.t.id;
+    for (const d of deps) {
+      if (!rowOf.has(d)) continue;
+      const pr = depNode(d, sm); if (!pr) continue;
+      const st = r.s ? secStart(me) : r.t.start, bad = st < nodeEnd(pr), mixed = !!(r.s || pr.s);
+      const dpath = linkPathIdx(nodeEnd(pr), rowOf.get(d), st, rowOf.get(myId));
+      links += `<path class="link-hit" d="${dpath}" data-from="${d}" data-to="${myId}"><title>${esc(nodeName(pr))} → ${esc(nodeName(me))}${bad ? ' — ⚠️ não cabe no período da tarefa' : ''} (clique para remover)</title></path><path class="link${mixed ? ' sec' : ''}${bad ? ' bad' : ''}" d="${dpath}" marker-end="url(#arr)"/>`;
     }
   });
-
-  // dependências entre seções (só quando as duas linhas estão visíveis); vermelha se não couber no período da tarefa
-  const sidx = new Map(); rows.forEach((r, i) => { if (r.s) sidx.set(r.s.id, i); });
-  if (sidx.size) {
-    const sm = secMap();
-    rows.forEach(r => {
-      if (!r.s) return;
-      for (const d of r.s.deps || []) {
-        if (!sidx.has(d)) continue;
-        const pr = sm.get(d), me = { t: r.t, s: r.s }, bad = secStart(me) < secEnd(pr);
-        const dpath = linkPathIdx(secEnd(pr), sidx.get(d), secStart(me), sidx.get(r.s.id));
-        links += `<path class="link-hit" d="${dpath}" data-sfrom="${d}" data-sto="${r.s.id}"><title>${esc(pr.s.name)} → ${esc(r.s.name)}${bad ? ' — ⚠️ não cabe no período da tarefa' : ''} (clique para remover)</title></path><path class="link sec${bad ? ' bad' : ''}" d="${dpath}" marker-end="url(#arr)"/>`;
-      }
-    });
-  }
   const H_BAR = 24, R = H_BAR / 2, AV = 20, AV_STEP = 13;
   // barras das seções: clique marca/desmarca; arraste move; alças mudam início/fim; conectores criam dependências
   let secBars = '';
@@ -1449,7 +1438,7 @@ const CSV_VAL = {
   duration: t => t.duration,
   team: t => t.members.map(member).filter(Boolean).map(m => m.name).join(', '),
   progress: t => t.progress,
-  deps: t => t.deps.map(task).filter(Boolean).map(d => d.name).join(', '),
+  deps: t => { const m = secMap(); return t.deps.map(d => depNode(d, m)).filter(Boolean).map(nodeName).join(', '); },
   notes: t => t.notes || '',
 };
 function csvEsc(v, sep) {
@@ -1647,14 +1636,10 @@ function showSecTip(r, e) {
 chartEl.addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
   const hit = e.target.closest('.link-hit');
-  if (hit && hit.dataset.sto) { // dependência entre seções
-    const m = secMap(), pr = m.get(hit.dataset.sfrom), r = m.get(hit.dataset.sto);
-    if (pr && r && confirm(`Remover a dependência "${pr.s.name}" → "${r.s.name}"?`)) mutate(() => r.s.deps = r.s.deps.filter(d => d !== pr.s.id));
-    return;
-  }
-  if (hit) {
-    const p = task(hit.dataset.from), t = task(hit.dataset.to);
-    if (p && t && confirm(`Remover a dependência "${p.name}" → "${t.name}"?`)) mutate(() => t.deps = t.deps.filter(d => d !== p.id));
+  if (hit) { // remover dependência (tarefa ou seção)
+    const m = secMap(), p = depNode(hit.dataset.from, m), t = depNode(hit.dataset.to, m), from = hit.dataset.from;
+    if (p && t && confirm(`Remover a dependência "${nodeName(p)}" → "${nodeName(t)}"?`))
+      mutate(() => { if (t.s) t.s.deps = (t.s.deps || []).filter(d => d !== from); else t.t.deps = t.t.deps.filter(d => d !== from); });
     return;
   }
   const sb = e.target.closest('.secbar');
@@ -1669,7 +1654,7 @@ chartEl.addEventListener('pointerdown', e => {
     }
     const h = e.target.dataset.h;
     drag = { type: h === 'l' ? 'sleft' : h === 'r' ? 'sright' : 'smove', tid: sb.dataset.tid, sid: sb.dataset.sec, x0: e.clientX, prev: snap(), moved: false,
-      sbase: new Map([...secMap()].map(([k, r]) => [k, { off: r.s.off, dur: r.s.dur }])) };
+      sbase: new Map([...secMap()].map(([k, r]) => [k, { off: r.s.off, dur: r.s.dur }])), rangeStart: range.start };
     const s0 = scroller.scrollLeft; drag.scrollDelta = () => scroller.scrollLeft - s0;
     return;
   }
@@ -1712,7 +1697,9 @@ window.addEventListener('pointermove', e => {
     if (drag.type === 'smove') r.s.off = clamp(b.off + dd, Math.min(minOff, D - b.dur), D - b.dur);
     else if (drag.type === 'sleft') { const no = clamp(b.off + dd, Math.min(minOff, b.off + b.dur - 1), b.off + b.dur - 1); r.s.dur = b.off + b.dur - no; r.s.off = no; }
     else r.s.dur = clamp(b.dur + dd, 1, D - b.off);
-    scheduleSections(); state.tasks.forEach(sectionProgress);
+    if (!drag.tbase) drag.tbase = new Map(state.tasks.map(t => [t.id, t.start]));
+    state.tasks.forEach(t => { if (t.id !== r.t.id) t.start = drag.tbase.get(t.id); });
+    schedule();
     scheduleRender();
     showSecTip(r, e);
     autoScroll(e);
@@ -1760,9 +1747,10 @@ window.addEventListener('pointerup', e => {
   document.body.style.cursor = '';
   if (d.type === 'slink') {
     const l = $('#tempLink'); if (l) l.style.display = 'none';
-    const el = document.elementFromPoint(e.clientX, e.clientY), target = el && el.closest('.secbar');
-    if (!target) { if (el && el.closest('.bar')) toast('Ligue a seção a outra seção (de qualquer tarefa)'); return; }
-    if (target.dataset.sec !== d.from) { if (d.side === 'l') addSecDependency(target.dataset.sec, d.from); else addSecDependency(d.from, target.dataset.sec); }
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const sb = el && el.closest('.secbar'), tb = el && (el.closest('.bar') || el.closest('.band:not(.secband)') || el.closest('.row[data-id]'));
+    const tid = sb ? sb.dataset.sec : tb ? tb.dataset.id : null; // alvo: outra seção ou uma tarefa
+    if (tid && tid !== d.from) { if (d.side === 'l') addDependency(tid, d.from); else addDependency(d.from, tid); }
     return;
   }
   if (d.type === 'smove' || d.type === 'sleft' || d.type === 'sright') {
@@ -1773,10 +1761,11 @@ window.addEventListener('pointerup', e => {
   if (d.type === 'link') {
     const l = $('#tempLink'); if (l) l.style.display = 'none';
     const el = document.elementFromPoint(e.clientX, e.clientY);
-    const target = el && (el.closest('.bar') || el.closest('.band') || el.closest('.row[data-id]'));
-    if (target && target.dataset.id !== d.from) {
+    const sb = el && (el.closest('.secbar') || el.closest('.row.sec')), target = el && (el.closest('.bar') || el.closest('.band:not(.secband)') || el.closest('.row[data-id]'));
+    const tid = sb ? sb.dataset.sec : target ? target.dataset.id : null; // alvo: tarefa ou seção
+    if (tid && tid !== d.from) {
       // ponta direita: o alvo depende desta; ponta esquerda: esta depende do alvo
-      if (d.side === 'l') addDependency(target.dataset.id, d.from); else addDependency(d.from, target.dataset.id);
+      if (d.side === 'l') addDependency(tid, d.from); else addDependency(d.from, tid);
     }
     return;
   }
@@ -1990,7 +1979,7 @@ form.addEventListener('submit', e => {
     t.duration = Math.max(1, Math.round(+form.duration.value || 1));
     t.progress = clamp(+form.progress.value, 0, 100);
     t.members = state.members.filter(m => dlgMembers.has(m.id)).map(m => m.id);
-    t.deps = deps; t.notes = form.notes.value;
+    t.deps = [...deps, ...t.deps.filter(d => !task(d))]; t.notes = form.notes.value; // mantém as dependências de seções
     t.category = category(form.category.value) ? form.category.value : null;
     const ts = Number.isFinite(s) ? s : t.start;
     t.sections = dlgSecs.map(x => ({ id: x.id, name: x.name.trim() || 'Seção', off: x.a - ts, dur: x.b - x.a + 1, done: x.done, deps: x.deps || [] }));
