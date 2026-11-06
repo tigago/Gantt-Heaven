@@ -72,7 +72,14 @@ input,textarea,select{font:inherit;color:inherit}
 .row.sec .secname{font-size:12px;color:#3c4458;padding-left:22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row.sec .sdur{font-size:11.5px;color:var(--muted);text-align:right;padding-right:4px}
 .row.sec.done .secname{text-decoration:line-through;color:var(--muted)}
-.secbar{cursor:pointer}
+.secbar{cursor:grab}
+.secbar .shandle{fill:transparent;cursor:ew-resize}
+.secbar .sconnector{fill:#fff;stroke:#8a92a6;stroke-width:1.5;opacity:0;cursor:crosshair;transition:opacity .1s}
+.secbar:hover .sconnector{opacity:1}
+.secbar .sconnector:hover{stroke:var(--accent);fill:var(--accent)}
+.linking .secbar:hover rect:first-child{stroke:var(--accent);stroke-width:2.5;stroke-dasharray:4 2}
+.link.sec{stroke-dasharray:4 3}
+.link.bad{stroke:#e5484d}
 .secbar text{font-size:11px;font-weight:600;pointer-events:none}
 .secbar:hover rect{filter:brightness(.95);stroke-width:2}
 .band.secband{fill:#fbfbfd}
@@ -442,7 +449,7 @@ dialog.xwide{width:min(940px,96vw)}
       <label>Duração (dias)<input type="number" name="duration" min="1" required></label>
     </div>
     <label>Progresso: <span id="progVal">0%</span><input type="range" name="progress" min="0" max="100" step="5"></label>
-    <div><span class="lbl">Seções <span class="muted" style="font-weight:400">— etapas tickáveis dentro do período da tarefa (com seções, o progresso é calculado por elas)</span></span>
+    <div><span class="lbl">Seções <span class="muted" style="font-weight:400">— etapas tickáveis dentro do período da tarefa (com seções, o progresso é calculado por elas, proporcional à duração de cada uma)</span></span>
       <div id="dlgSecs" class="secs"></div>
       <button type="button" id="dlgAddSec" class="secadd">+ Seção</button></div>
     <label>Categoria<select name="category" id="dlgCategory"></select></label>
@@ -740,7 +747,7 @@ function deserialize(o) {
       duration: Math.max(1, Math.round(+t.duration || 1)), progress: clamp(Math.round(+t.progress || 0), 0, 100),
       members: (t.members || []).map(String).filter(id => mids.has(id)), category: cids.has(String(t.category)) ? String(t.category) : null, deps: (t.deps || []).map(String), notes: String(t.notes || ''),
       // seções: etapas "tickáveis" dentro do período da tarefa (off = dias a partir do início da tarefa)
-      sections: (Array.isArray(t.sections) ? t.sections : []).map(x => ({ id: String(x.id || uid()), name: String(x.name ?? 'Seção'), off: Math.max(0, Math.round(+x.off || 0)), dur: Math.max(1, Math.round(+x.dur || 1)), done: !!x.done })) };
+      sections: (Array.isArray(t.sections) ? t.sections : []).map(x => ({ id: String(x.id || uid()), name: String(x.name ?? 'Seção'), off: Math.max(0, Math.round(+x.off || 0)), dur: Math.max(1, Math.round(+x.dur || 1)), done: !!x.done, deps: (Array.isArray(x.deps) ? x.deps : []).map(String) })) };
   });
   const tids = new Set(tasks.map(t => t.id));
   tasks.forEach(t => t.deps = [...new Set(t.deps)].filter(d => tids.has(d) && d !== t.id));
@@ -772,15 +779,65 @@ function schedule() {
   };
   state.tasks.forEach(visit);
   state.tasks.forEach(fitSections);
+  scheduleSections();
+  state.tasks.forEach(sectionProgress);
 }
-// mantém as seções dentro do período da tarefa e, havendo seções, o progresso = % de seções concluídas
+// todas as seções do projeto por id → { t: tarefa, s: seção }
+function secMap() {
+  const m = new Map();
+  for (const t of state.tasks) for (const x of t.sections || []) m.set(x.id, { t, s: x });
+  return m;
+}
+const secStart = r => r.t.start + r.s.off, secEnd = r => r.t.start + r.s.off + r.s.dur; // fim exclusivo
+// empurra as seções para começarem após o fim das seções de que dependem (sem sair do período da tarefa)
+function scheduleSections() {
+  const m = secMap(), done = new Set(), visiting = new Set();
+  const visit = r => {
+    const x = r.s; if (done.has(x.id) || visiting.has(x.id)) return;
+    visiting.add(x.id);
+    x.deps = [...new Set(x.deps || [])].filter(d => m.has(d) && d !== x.id);
+    let me = -Infinity;
+    for (const d of x.deps) { const pr = m.get(d); visit(pr); me = Math.max(me, secEnd(pr)); }
+    if (secStart(r) < me) x.off = clamp(me - r.t.start, 0, r.t.duration - x.dur); // se não couber, fica no fim da tarefa (conflito)
+    visiting.delete(x.id); done.add(x.id);
+  };
+  m.forEach(visit);
+}
+// início mínimo (absoluto) de uma seção pelas suas dependências
+function secMinStart(r, m = secMap()) {
+  let me = -Infinity;
+  for (const d of r.s.deps || []) { const pr = m.get(d); if (pr) me = Math.max(me, secEnd(pr)); }
+  return me;
+}
+function secDependsOn(aId, bId, m = secMap(), seen = new Set()) {
+  if (aId === bId) return true;
+  if (seen.has(aId)) return false; seen.add(aId);
+  const a = m.get(aId); if (!a) return false;
+  return (a.s.deps || []).some(d => secDependsOn(d, bId, m, seen));
+}
+function addSecDependency(fromId, toId) {
+  if (fromId === toId) return;
+  const m = secMap(), to = m.get(toId), from = m.get(fromId); if (!to || !from) return;
+  if ((to.s.deps || []).includes(fromId)) { toast('Essa dependência já existe'); return; }
+  if (secDependsOn(fromId, toId, m)) { toast('⚠️ Isso criaria uma dependência circular'); return; }
+  mutate(() => { (to.s.deps = to.s.deps || []).push(fromId); });
+  const r = secMap().get(toId);
+  if (secStart(r) < secEnd(secMap().get(fromId))) toast(`⚠️ "${r.s.name}" não cabe depois de "${from.s.name}" dentro do período de "${r.t.name}"`);
+  else toast(`"${to.s.name}" agora depende de "${from.s.name}"`);
+}
+// progresso da tarefa pelas seções concluídas, proporcional à duração de cada seção
+function sectionProgress(t) {
+  if (!t.sections || !t.sections.length) return;
+  const tot = t.sections.reduce((a, x) => a + x.dur, 0), ok = t.sections.filter(x => x.done).reduce((a, x) => a + x.dur, 0);
+  t.progress = tot ? Math.round(ok / tot * 100) : 0;
+}
+// mantém as seções dentro do período da tarefa
 function fitSections(t) {
   if (!t.sections) t.sections = [];
   for (const x of t.sections) {
     x.off = clamp(x.off, 0, t.duration - 1);
     x.dur = clamp(x.dur, 1, t.duration - x.off);
   }
-  if (t.sections.length) t.progress = Math.round(t.sections.filter(x => x.done).length / t.sections.length * 100);
 }
 // verdadeiro se "a" depende (direta ou indiretamente) de "b"
 function dependsOn(aId, bId, seen = new Set()) {
@@ -1036,9 +1093,11 @@ function fitText(text, maxW, font) {
   return lo ? text.slice(0, lo).trimEnd() + '…' : '';
 }
 
-function linkPath(p, t, ip, it) {
-  const x1 = (p.start + p.duration - range.start) * dayW, y1 = ip * ROW + ROW / 2;
-  const x2 = (t.start - range.start) * dayW, y2 = it * ROW + ROW / 2;
+function linkPath(p, t, ip, it) { return linkPathIdx(p.start + p.duration, ip, t.start, it); }
+// seta de dependência: do fim (dia, exclusivo) na linha ip até o início na linha it
+function linkPathIdx(endIdx, ip, startIdx, it) {
+  const x1 = (endIdx - range.start) * dayW, y1 = ip * ROW + ROW / 2;
+  const x2 = (startIdx - range.start) * dayW, y2 = it * ROW + ROW / 2;
   if (x2 - x1 >= 22) return `M${x1},${y1}H${x1 + 10}V${y2}H${x2 - 1}`;
   const ym = it > ip ? it * ROW : (it + 1) * ROW;
   return `M${x1},${y1}h10V${ym}H${x2 - 12}V${y2}H${x2 - 1}`;
@@ -1073,8 +1132,22 @@ function renderChart() {
     }
   });
 
+  // dependências entre seções (só quando as duas linhas estão visíveis); vermelha se não couber no período da tarefa
+  const sidx = new Map(); rows.forEach((r, i) => { if (r.s) sidx.set(r.s.id, i); });
+  if (sidx.size) {
+    const sm = secMap();
+    rows.forEach(r => {
+      if (!r.s) return;
+      for (const d of r.s.deps || []) {
+        if (!sidx.has(d)) continue;
+        const pr = sm.get(d), me = { t: r.t, s: r.s }, bad = secStart(me) < secEnd(pr);
+        const dpath = linkPathIdx(secEnd(pr), sidx.get(d), secStart(me), sidx.get(r.s.id));
+        links += `<path class="link-hit" d="${dpath}" data-sfrom="${d}" data-sto="${r.s.id}"><title>${esc(pr.s.name)} → ${esc(r.s.name)}${bad ? ' — ⚠️ não cabe no período da tarefa' : ''} (clique para remover)</title></path><path class="link sec${bad ? ' bad' : ''}" d="${dpath}" marker-end="url(#arr)"/>`;
+      }
+    });
+  }
   const H_BAR = 24, R = H_BAR / 2, AV = 20, AV_STEP = 13;
-  // barras das seções (clique para marcar/desmarcar como concluída)
+  // barras das seções: clique marca/desmarca; arraste move; alças mudam início/fim; conectores criam dependências
   let secBars = '';
   rows.forEach(({ t, s: sec }, i) => {
     if (!sec) return;
@@ -1083,7 +1156,11 @@ function renderChart() {
     const lbl = fitText((sec.done ? '✓ ' : '') + sec.name, w - 10, '600 11px "Segoe UI", system-ui, sans-serif');
     secBars += `<g class="secbar${sec.done ? ' done' : ''}" data-tid="${t.id}" data-sec="${sec.id}"><rect x="${x + 1}" y="${y}" width="${Math.max(w - 2, 2)}" height="${SH}" rx="${SH / 2}" fill="${sec.done ? '#c9cedb' : color}" fill-opacity="${sec.done ? 1 : .55}" stroke="${color}"/>`
       + (lbl ? `<text x="${x + 7}" y="${y + 11}" style="fill:${sec.done ? '#5b6378' : textOn(color)}">${esc(lbl)}</text>` : '')
-      + `<title>${esc(sec.name)} · ${fmtLong(t.start + sec.off)} → ${fmtLong(t.start + sec.off + sec.dur - 1)}${sec.done ? ' · concluída' : ''} — clique para ${sec.done ? 'desmarcar' : 'marcar como concluída'}</title></g>`;
+      + `<title>${esc(sec.name)} · ${fmtLong(t.start + sec.off)} → ${fmtLong(t.start + sec.off + sec.dur - 1)}${sec.done ? ' · concluída' : ''} — clique para ${sec.done ? 'desmarcar' : 'marcar como concluída'}; arraste para mover</title>`
+      + `<rect class="shandle" data-h="l" x="${x}" y="${y}" width="${Math.min(8, w / 3)}" height="${SH}"><title>Arraste para mudar o início da seção</title></rect>`
+      + `<rect class="shandle" data-h="r" x="${x + w - Math.min(8, w / 3)}" y="${y}" width="${Math.min(8, w / 3)}" height="${SH}"><title>Arraste para mudar o fim da seção</title></rect>`
+      + `<circle class="sconnector" data-c="l" cx="${x - 7}" cy="${y + SH / 2}" r="4"><title>Arraste até a seção que deve terminar antes desta</title></circle>`
+      + `<circle class="sconnector" data-c="r" cx="${x + w + 7}" cy="${y + SH / 2}" r="4"><title>Arraste até a seção que só pode começar depois desta</title></circle></g>`;
   });
   tasks.forEach(t => {
     const i = index.get(t.id);
@@ -1556,18 +1633,46 @@ function showTip(t, e) {
   tip.style.left = x + 'px'; tip.style.top = y + 'px';
 }
 const hideTip = () => tip.style.display = 'none';
+function showSecTip(r, e) {
+  const a = secStart(r), b = secEnd(r) - 1;
+  tip.innerHTML = `<b>${esc(r.s.name)}</b> <span style="opacity:.7">(${esc(r.t.name)})</span><br>${fmtLong(a)} → ${fmtLong(b)}<br>${plural(r.s.dur)}`;
+  tip.style.display = 'block';
+  const rr = tip.getBoundingClientRect(); let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + rr.width > innerWidth - 8) x = e.clientX - rr.width - 14;
+  if (y + rr.height > innerHeight - 8) y = e.clientY - rr.height - 12;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
 
 // ---------- Interação no gráfico ----------
 chartEl.addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
   const hit = e.target.closest('.link-hit');
+  if (hit && hit.dataset.sto) { // dependência entre seções
+    const m = secMap(), pr = m.get(hit.dataset.sfrom), r = m.get(hit.dataset.sto);
+    if (pr && r && confirm(`Remover a dependência "${pr.s.name}" → "${r.s.name}"?`)) mutate(() => r.s.deps = r.s.deps.filter(d => d !== pr.s.id));
+    return;
+  }
   if (hit) {
     const p = task(hit.dataset.from), t = task(hit.dataset.to);
     if (p && t && confirm(`Remover a dependência "${p.name}" → "${t.name}"?`)) mutate(() => t.deps = t.deps.filter(d => d !== p.id));
     return;
   }
   const sb = e.target.closest('.secbar');
-  if (sb) { toggleSection(sb.dataset.tid, sb.dataset.sec); return; }
+  if (sb) {
+    e.preventDefault(); hideTip();
+    if (e.target.classList.contains('sconnector')) {
+      const c = e.target;
+      drag = { type: 'slink', from: sb.dataset.sec, side: c.dataset.c, x0: +c.getAttribute('cx'), y0: +c.getAttribute('cy') };
+      document.body.classList.add('linking', 'dragging');
+      const l = $('#tempLink'); l.setAttribute('x1', drag.x0); l.setAttribute('y1', drag.y0); l.setAttribute('x2', drag.x0); l.setAttribute('y2', drag.y0); l.style.display = '';
+      return;
+    }
+    const h = e.target.dataset.h;
+    drag = { type: h === 'l' ? 'sleft' : h === 'r' ? 'sright' : 'smove', tid: sb.dataset.tid, sid: sb.dataset.sec, x0: e.clientX, prev: snap(), moved: false,
+      sbase: new Map([...secMap()].map(([k, r]) => [k, { off: r.s.off, dur: r.s.dur }])) };
+    const s0 = scroller.scrollLeft; drag.scrollDelta = () => scroller.scrollLeft - s0;
+    return;
+  }
   const g = e.target.closest('.bar');
   if (!g) { setSelected(e.target.classList.contains('band') ? e.target.dataset.id : null); return; }
   e.preventDefault();
@@ -1595,7 +1700,25 @@ window.addEventListener('pointermove', e => {
     }
     return;
   }
-  if (drag.type === 'link') {
+  if (drag.type === 'smove' || drag.type === 'sleft' || drag.type === 'sright') { // arraste de seção, dentro do período da tarefa
+    if (!drag.moved && Math.abs(e.clientX - drag.x0) < 3) return;
+    drag.moved = true;
+    document.body.classList.add('dragging');
+    document.body.style.cursor = drag.type === 'smove' ? 'grabbing' : 'ew-resize';
+    const dd = Math.round((e.clientX - drag.x0 + drag.scrollDelta()) / dayW);
+    const m = secMap(); m.forEach((r, k) => { const b = drag.sbase.get(k); if (b) { r.s.off = b.off; r.s.dur = b.dur; } });
+    const r = m.get(drag.sid); if (!r) return;
+    const b = drag.sbase.get(drag.sid), D = r.t.duration, minOff = Math.max(0, secMinStart(r, m) - r.t.start);
+    if (drag.type === 'smove') r.s.off = clamp(b.off + dd, Math.min(minOff, D - b.dur), D - b.dur);
+    else if (drag.type === 'sleft') { const no = clamp(b.off + dd, Math.min(minOff, b.off + b.dur - 1), b.off + b.dur - 1); r.s.dur = b.off + b.dur - no; r.s.off = no; }
+    else r.s.dur = clamp(b.dur + dd, 1, D - b.off);
+    scheduleSections(); state.tasks.forEach(sectionProgress);
+    scheduleRender();
+    showSecTip(r, e);
+    autoScroll(e);
+    return;
+  }
+  if (drag.type === 'link' || drag.type === 'slink') {
     const r = $('#chartSvg').getBoundingClientRect();
     const l = $('#tempLink'); l.setAttribute('x2', e.clientX - r.left); l.setAttribute('y2', e.clientY - r.top);
     autoScroll(e);
@@ -1635,6 +1758,18 @@ window.addEventListener('pointerup', e => {
   const d = drag; drag = null;
   document.body.classList.remove('linking', 'dragging');
   document.body.style.cursor = '';
+  if (d.type === 'slink') {
+    const l = $('#tempLink'); if (l) l.style.display = 'none';
+    const el = document.elementFromPoint(e.clientX, e.clientY), target = el && el.closest('.secbar');
+    if (!target) { if (el && el.closest('.bar')) toast('Ligue a seção a outra seção (de qualquer tarefa)'); return; }
+    if (target.dataset.sec !== d.from) { if (d.side === 'l') addSecDependency(target.dataset.sec, d.from); else addSecDependency(d.from, target.dataset.sec); }
+    return;
+  }
+  if (d.type === 'smove' || d.type === 'sleft' || d.type === 'sright') {
+    hideTip();
+    if (d.moved) finish(d.prev); else toggleSection(d.tid, d.sid); // clique sem arrastar: marca/desmarca
+    return;
+  }
   if (d.type === 'link') {
     const l = $('#tempLink'); if (l) l.style.display = 'none';
     const el = document.elementFromPoint(e.clientX, e.clientY);
@@ -1745,7 +1880,7 @@ function openTaskDlg(id) {
   form.name.value = t.name; form.start.value = fromIdx(t.start); form.end.value = fromIdx(t.start + t.duration - 1);
   form.duration.value = t.duration; form.progress.value = t.progress; $('#progVal').textContent = t.progress + '%';
   form.notes.value = t.notes || '';
-  dlgSecs = (t.sections || []).map(x => ({ id: x.id, name: x.name, a: t.start + x.off, b: t.start + x.off + x.dur - 1, done: x.done }));
+  dlgSecs = (t.sections || []).map(x => ({ id: x.id, name: x.name, a: t.start + x.off, b: t.start + x.off + x.dur - 1, done: x.done, deps: x.deps || [] }));
   renderDlgSecs();
   renderDlgMembers();
   renderDlgCategory(t.category);
@@ -1772,7 +1907,7 @@ function renderDlgSecs() {
     <input type="date" data-f="b" value="${fromIdx(x.b)}" min="${mn}" max="${mx}" title="Fim da seção">
     <button type="button" data-f="del" title="Remover a seção">✕</button></div>`).join('') || '<div class="empty" style="font-size:12px;color:var(--muted)">Nenhuma seção.</div>';
   form.progress.disabled = dlgSecs.length > 0;
-  if (dlgSecs.length) { const v = Math.round(dlgSecs.filter(x => x.done).length / dlgSecs.length * 100); form.progress.value = v; $('#progVal').textContent = v + '% (pelas seções)'; }
+  if (dlgSecs.length) { const tot = dlgSecs.reduce((a, x) => a + x.b - x.a + 1, 0), ok = dlgSecs.filter(x => x.done).reduce((a, x) => a + x.b - x.a + 1, 0), v = tot ? Math.round(ok / tot * 100) : 0; form.progress.value = v; $('#progVal').textContent = v + '% (pelas seções, proporcional à duração)'; }
   else $('#progVal').textContent = form.progress.value + '%';
 }
 $('#dlgSecs').addEventListener('input', e => {
@@ -1797,7 +1932,7 @@ $('#dlgSecs').addEventListener('click', e => {
 $('#dlgAddSec').onclick = () => {
   const p = dlgPeriod(); if (!p) return;
   const last = dlgSecs.length ? Math.max(...dlgSecs.map(x => x.b)) : p.s - 1, a = Math.min(last + 1, p.e);
-  dlgSecs.push({ id: uid(), name: `Seção ${dlgSecs.length + 1}`, a, b: a, done: false });
+  dlgSecs.push({ id: uid(), name: `Seção ${dlgSecs.length + 1}`, a, b: a, done: false, deps: [] });
   renderDlgSecs();
   const inp = $('#dlgSecs').querySelector('.secrow:last-child [data-f=name]'); if (inp) { inp.focus(); inp.select(); }
 };
@@ -1858,7 +1993,7 @@ form.addEventListener('submit', e => {
     t.deps = deps; t.notes = form.notes.value;
     t.category = category(form.category.value) ? form.category.value : null;
     const ts = Number.isFinite(s) ? s : t.start;
-    t.sections = dlgSecs.map(x => ({ id: x.id, name: x.name.trim() || 'Seção', off: x.a - ts, dur: x.b - x.a + 1, done: x.done }));
+    t.sections = dlgSecs.map(x => ({ id: x.id, name: x.name.trim() || 'Seção', off: x.a - ts, dur: x.b - x.a + 1, done: x.done, deps: x.deps || [] }));
   });
   if (Number.isFinite(s) && task(dlgTaskId).start > s) toast('Início ajustado para depois das dependências');
   taskDlg.close();
