@@ -494,7 +494,7 @@ dialog.xwide{width:min(940px,96vw)}
     <div class="grid2">
       <label>Tamanho do papel<select name="paper">
         <option value="auto" title="A4; usa página única do tamanho do diagrama se ele for grande demais">Automático</option>
-        <option value="A4">A4</option><option value="A3">A3</option><option value="A5">A5</option>
+        <option value="A4">A4</option><option value="A2">A2</option><option value="A3">A3</option><option value="A5">A5</option>
         <option value="Letter">Carta</option><option value="Legal">Ofício (Legal)</option>
         <option value="fit">Página única do tamanho do diagrama</option>
       </select></label>
@@ -1248,7 +1248,7 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
   const tasks = state.tasks.filter(t => (!onlyIn || overlaps(t, from, to)) && (!opts.filters || passFilter(t)));
   const start = from, days = to - from + 1;
   const paper = opts.paper || 'auto', orient = opts.orient === 'portrait' ? 'portrait' : 'landscape';
-  const MM = { A3: [420, 297], A4: [297, 210], A5: [210, 148], Letter: [279.4, 215.9], Legal: [355.6, 215.9] }[paper === 'auto' || paper === 'fit' ? 'A4' : paper];
+  const MM = { A2: [594, 420], A3: [420, 297], A4: [297, 210], A5: [210, 148], Letter: [279.4, 215.9], Legal: [355.6, 215.9] }[paper === 'auto' || paper === 'fit' ? 'A4' : paper];
   const pxmm = 96 / 25.4, [mw, mh] = orient === 'portrait' ? [MM[1], MM[0]] : MM;
   const LW = cols.length ? cols.reduce((a, c) => a + c.w, 0) + 4 * (cols.length - 1) + 12 : 0, TOP = 70;
   const PW = Math.floor((mw - 20) * pxmm), PH = Math.floor((mh - 20) * pxmm) - 18; // área útil (margem de 10 mm); A4 paisagem ≈ 1047×700 px
