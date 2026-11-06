@@ -927,6 +927,7 @@ function render() {
   document.title = (dirty ? '• ' : '') + state.name + ' — Gantt Heaven';
   $('#colMode').value = state.view.columns;
   $('#btnClearMarks').style.display = state.marks.length ? '' : 'none';
+  $('#btnClearMarks').textContent = `✖ Destaques${state.marks.length > 1 ? ` (${state.marks.length})` : ''}`;
   $('#btnUndo').disabled = !undoStack.length; $('#btnRedo').disabled = !redoStack.length;
   renderFinance();
 }
@@ -2095,9 +2096,15 @@ $('#btnClearMarks').onclick = () => mutate(() => state.marks = []);
 timelineEl.addEventListener('click', e => {
   const r = timelineEl.querySelector('svg').getBoundingClientRect();
   const idx = range.start + Math.floor((e.clientX - r.left) / dayW);
-  const hit = state.marks.findIndex(m => idx >= m.s && idx < m.e);
   const [a, b] = unitRange(idx, state.view.columns);
-  mutate(() => { if (hit >= 0) state.marks.splice(hit, 1); else state.marks.push({ s: a, e: b }); });
+  // destaque que já cobre a unidade clicada (dia/semana/mês do modo atual): clicar remove;
+  // senão destaca a unidade inteira e absorve os destaques menores dentro dela
+  // (antes, depois de trocar Dias → Meses, clicar sobre um dia destacado o removia em vez de destacar o mês)
+  const hit = state.marks.findIndex(m => idx >= m.s && idx < m.e && m.s <= a && m.e >= b);
+  mutate(() => {
+    if (hit >= 0) state.marks.splice(hit, 1);
+    else { state.marks = state.marks.filter(m => !(m.s >= a && m.e <= b)); state.marks.push({ s: a, e: b }); }
+  });
 });
 $('#btnAdd').onclick = addTask;
 $('#btnMembers').onclick = () => openMgr('members');
