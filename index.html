@@ -37,7 +37,6 @@ input,textarea,select{font:inherit;color:inherit}
 .tfilt{max-width:190px}
 .tfilt.on{border-color:var(--accent);background:#eef2ff;color:var(--accent);font-weight:600}
 #timeline{cursor:pointer}
-#legend{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-left:auto}
 .chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px 3px 4px;border-radius:999px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:12px;user-select:none}
 .chip .dot{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#fff}
 .chip.on{border-color:var(--text);box-shadow:0 0 0 1px var(--text) inset}
@@ -383,7 +382,6 @@ dialog.xwide{width:min(940px,96vw)}
   <select id="fCategory" class="tfilt" title="Filtrar tarefas por categoria"></select>
   <button id="btnClearFilt" title="Remover os filtros" style="display:none">✖ Filtros</button>
   <span id="filtInfo" class="muted" style="font-size:12px"></span>
-  <div id="legend"></div>
 </div>
 
 <div id="scroller">
@@ -612,7 +610,7 @@ dialog.xwide{width:min(940px,96vw)}
       <tr><td>Editar detalhes</td><td>Duplo clique na barra ou na linha (ou <kbd>Enter</kbd>)</td></tr>
       <tr><td>Reordenar</td><td>Arraste o ícone ⠿ na lista</td></tr>
       <tr><td>Categorias</td><td>Botão 🏷️ Categorias. A borda da cápsula mostra a cor da categoria; escolha a categoria da tarefa com duplo clique nela.</td></tr>
-      <tr><td>Membros</td><td>Botão 👥 Membros. Clique num membro da legenda para destacar as tarefas dele.</td></tr>
+      <tr><td>Membros</td><td>Botão 👥 Membros. Use os filtros de membro e categoria na barra para mostrar só as tarefas que atendem.</td></tr>
       <tr><td>Colunas</td><td>Em ▦ Colunas escolha Dias, Semanas ou Meses para agrupar e sombrear as colunas. Clique no cabeçalho para destacar aquele dia/semana/mês; clique num destaque para removê-lo.</td></tr>
       <tr><td>PDF</td><td>Botão 🖨️ PDF: escolha o período (de/até), se mostra os períodos destacados e se inclui a tabela (e quais colunas); depois salve como PDF no diálogo de impressão.</td></tr>
       <tr><td>CSV</td><td>Botão 📑 CSV: exporta para planilha as tarefas de um período (de/até), escolhendo as colunas.</td></tr>
@@ -1041,16 +1039,7 @@ function renderFilters() {
   $('#btnClearFilt').style.display = on ? '' : 'none';
   $('#filtInfo').textContent = on ? `${visTasks().length} de ${state.tasks.length} tarefa(s)` : '';
 }
-function renderLegend() {
-  renderFilters();
-  $('#legend').innerHTML = state.members.map(m => {
-    const cls = highlightMember === m.id ? ' on' : (highlightMember ? ' off' : '');
-    return `<span class="chip${cls}" data-mid="${m.id}" title="Clique para filtrar as tarefas de ${esc(m.name)}"><span class="dot" style="background:${m.color};color:${textOn(m.color)}">${esc(initials(m.name))}</span>${esc(m.name)}</span>`;
-  }).join('') + (state.categories.length && state.members.length ? '<span class="sep"></span>' : '') + state.categories.map(c => {
-    const cls = highlightCategory === c.id ? ' on' : (highlightCategory ? ' off' : '');
-    return `<span class="chip cat${cls}" data-cid="${c.id}" title="Clique para filtrar a categoria ${esc(c.name)}"><span class="ring" style="border-color:${c.color}"></span>${esc(c.name)}</span>`;
-  }).join('');
-}
+function renderLegend() { renderFilters(); }
 
 function setSelected(id) {
   selectedId = id;
@@ -1763,12 +1752,6 @@ $('#btnToday').onclick = () => scrollToDay(todayIdx() - 3);
 $('#zoom').addEventListener('input', e => setZoom(+e.target.value));
 $('#btnHelp').onclick = () => $('#helpDlg').showModal();
 $('#helpClose').onclick = () => $('#helpDlg').close();
-$('#legend').addEventListener('click', e => {
-  const c = e.target.closest('.chip'); if (!c) return;
-  if (c.dataset.mid) highlightMember = highlightMember === c.dataset.mid ? null : c.dataset.mid;
-  else highlightCategory = highlightCategory === c.dataset.cid ? null : c.dataset.cid;
-  render();
-});
 $('#fMember').addEventListener('change', e => { highlightMember = e.target.value || null; render(); });
 $('#fCategory').addEventListener('change', e => { highlightCategory = e.target.value || null; render(); });
 $('#btnClearFilt').onclick = () => { highlightMember = null; highlightCategory = null; render(); };
