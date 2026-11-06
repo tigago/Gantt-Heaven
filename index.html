@@ -278,13 +278,6 @@ dialog.xwide{width:min(940px,96vw)}
 .seg button.on{background:#fff;color:var(--text);box-shadow:0 1px 3px rgba(20,25,40,.15)}
 #txDir button.on[data-v=out],#itemType button.on[data-v=expense],#disbType button.on[data-v=expense]{color:#c93c37}
 #txDir button.on[data-v=in],#itemType button.on[data-v=income],#disbType button.on[data-v=income]{color:#1a7f37}
-.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:6px;max-height:260px;overflow:auto;padding:2px}
-.mcell{display:flex !important;flex-direction:column !important;gap:2px !important;font-size:11px !important}
-.mcell.cur span{color:var(--accent)}
-.mcell input{border:1px solid var(--line);border-radius:6px;padding:5px 7px;font:inherit;font-size:13px;color:var(--text);text-align:right;font-weight:400}
-.mcell input:focus{outline:none;border-color:var(--accent)}
-.mcell input.invalid{border-color:var(--danger);background:#fdecec}
-#itemSum{margin-top:6px;font-size:12px;font-weight:600}
 .recrow{display:grid;grid-template-columns:1.2fr 1fr 1.3fr 1.4fr 34px 34px;gap:6px;align-items:center}
 .recrow.head{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase}
 .recrow input{border:1px solid var(--line);border-radius:7px;padding:6px 8px;font:inherit;color:var(--text);min-width:0;width:100%}
@@ -470,7 +463,7 @@ dialog.xwide{width:min(940px,96vw)}
   </form>
 </dialog>
 
-<dialog id="itemDlg" class="wide">
+<dialog id="itemDlg">
   <form class="dlg" id="itemForm" method="dialog">
     <h2 id="itemTitle">Nova previsão de gasto</h2>
     <div class="seg" id="itemType"><button type="button" data-v="expense">↓ Gasto</button><button type="button" data-v="income">↑ Receita</button></div>
@@ -479,11 +472,7 @@ dialog.xwide{width:min(940px,96vw)}
       <label>Categoria<input type="text" name="category" list="finCats" placeholder="ex.: Produção"></label>
       <label>Quantia total (R$)<input type="text" name="amount" inputmode="decimal" placeholder="ex.: R$ 20.000,00"></label>
     </div>
-    <div>
-      <span class="lbl">Previsão mensal de <span id="itemWord">saída</span></span>
-      <div id="itemMonths" class="mgrid"></div>
-      <div id="itemSum" class="muted"></div>
-    </div>
+    <div class="muted" style="font-size:12px">A previsão de cada mês é distribuída na aba <b>Desembolso</b>.</div>
     <div class="actions">
       <button type="button" class="danger" id="itemDelete">Excluir</button>
       <span style="flex:1"></span>
@@ -2479,29 +2468,10 @@ function openItemDlg(id, type) {
   itemForm.name.value = it ? it.name : '';
   itemForm.category.value = it ? it.category : '';
   itemForm.amount.value = it ? moneyIn(it.amount) : '';
-  const p = finPeriod();
-  const months = [...new Set([...monthList(p.start, p.end), ...Object.keys(it ? it.plan : {})])].sort();
-  $('#itemMonths').innerHTML = months.map(m => `<label class="mcell${m === todayYM() ? ' cur' : ''}"><span>${ymLabel(m)}</span><input type="text" data-m="${m}" value="${it ? moneyIn(it.plan[m]) : ''}" inputmode="decimal" placeholder="0"></label>`).join('');
   $('#itemDelete').style.display = it ? '' : 'none';
-  updateItemSum();
   itemDlg.showModal(); itemForm.name.focus();
 }
-function dlgPlan() {
-  const plan = {}; let bad = false;
-  $('#itemMonths').querySelectorAll('input').forEach(i => { const v = parseMoney(i.value); if (!Number.isFinite(v) || v < 0) bad = true; else if (v) plan[i.dataset.m] = v; i.classList.toggle('invalid', !Number.isFinite(v) || v < 0); });
-  return bad ? null : plan;
-}
-function updateItemSum() {
-  const plan = dlgPlan() || {}, sum = round2(Object.values(plan).reduce((a, v) => a + v, 0));
-  const amt = parseMoney(itemForm.amount.value), el = $('#itemSum');
-  if (!Number.isFinite(amt) || !itemForm.amount.value.trim()) { el.textContent = `Distribuído: ${money(sum)}${sum ? ' (a quantia será igual ao total distribuído)' : ''}`; el.className = 'muted'; return; }
-  const diff = round2(amt - sum);
-  el.textContent = `Distribuído: ${money(sum)} de ${money(amt)}` + (Math.abs(diff) < 0.005 ? ' ✓' : diff > 0 ? ` — faltam ${money(diff)}` : ` — excede em ${money(-diff)}`);
-  el.className = Math.abs(diff) < 0.005 ? 'ok' : 'bad';
-}
 $('#itemType').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) setItemType(b.dataset.v); });
-$('#itemMonths').addEventListener('input', updateItemSum);
-itemForm.amount.addEventListener('input', updateItemSum);
 // ---------- Diálogo: distribuir igualmente (Desembolso) ----------
 const distDlg = $('#distDlg'), distForm = $('#distForm');
 let distItemId = null;
@@ -2550,13 +2520,12 @@ $('#itemDelete').onclick = () => { const id = dlgItem.id; itemDlg.close(); delet
 itemForm.addEventListener('submit', e => {
   e.preventDefault();
   const name = itemForm.name.value.trim(); if (!name) { itemForm.name.focus(); return; }
-  const plan = dlgPlan(); if (!plan) { toast('Há valores mensais inválidos'); return; }
-  let amount = itemForm.amount.value.trim() ? parseMoney(itemForm.amount.value) : round2(Object.values(plan).reduce((a, v) => a + v, 0));
+  const amount = itemForm.amount.value.trim() ? parseMoney(itemForm.amount.value) : 0;
   if (!Number.isFinite(amount) || amount < 0) { toast('Quantia inválida — use, por exemplo, 1.234,56'); itemForm.amount.focus(); return; }
-  const data = { type: dlgItem.type, category: itemForm.category.value.trim(), name, amount, plan };
-  fmutate(() => {
+  const data = { type: dlgItem.type, category: itemForm.category.value.trim(), name, amount };
+  fmutate(() => { // a distribuição mensal (plan) é mantida; é editada no Desembolso
     if (dlgItem.id) Object.assign(finItem(dlgItem.id), data);
-    else state.finance.items.push({ id: uid(), ...data });
+    else state.finance.items.push({ id: uid(), ...data, plan: {} });
   });
   itemDlg.close();
 });
