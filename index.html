@@ -175,7 +175,7 @@ dialog::backdrop{background:rgba(20,25,40,.35)}
 .colopt:has(input:checked){background:#eef2ff;border-color:#c5cff8}
 .colopt input{margin:0}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end}
 .dlg input[readonly]{background:#f4f5f8;color:var(--muted)}
 .presets{display:flex;gap:6px;flex-wrap:wrap}
 .presets button{padding:4px 10px;font-size:12px;border-radius:999px}
