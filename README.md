@@ -2,6 +2,10 @@
 
 Editor de diagramas de Gantt em um único arquivo HTML — sem instalação, sem servidor.
 
+## 🎬 Tutorial em vídeo
+
+Veja em menos de 3 minutos como usar o cronograma e a aba de finanças: [video/tutorial-gantt-heaven.mp4](video/tutorial-gantt-heaven.mp4) (narrado em português).
+
 ## Como usar
 
 Abra `index.html` no navegador (duplo clique). O programa sempre abre com um projeto vazio — use 📂 Abrir ou 🕘 Recentes para continuar um projeto (o da última sessão também volta com ↶ Desfazer). Clique em **?** para ver a ajuda.
@@ -21,9 +25,37 @@ Abra `index.html` no navegador (duplo clique). O programa sempre abre com um pro
 
 ## Finanças (aba 💰)
 
-- **Planilha Orçamentária:** registre previsões de gastos e receitas (nome, categoria, quantia total e previsão por mês). Edite os valores direto nas células, como numa planilha; a coluna Diferença avisa se a distribuição mensal não fecha com a quantia. Totais por categoria, saldo previsto do mês e acumulado.
-- **Histórico de Pagamento:** transações em ordem cronológica, cada uma ligada a um item da planilha, com tipo (saída por padrão / entrada), destinatário (nome, telefone, e-mail, chave Pix), contrato, observação, **Nota Fiscal**, **Comprovante** e **Contrato** (PDF, PNG, JPG ou JPEG). Configure uma vez a 📁 Pasta dos documentos (caminho + seleção da pasta) e o caminho completo dos arquivos escolhidos dessa pasta é preenchido automaticamente.
-- **Desembolso:** previsto × realizado por item e por mês, com % pago e barras de progresso.
-- Cada sub-aba tem exportação 🖨️ PDF e 📑 CSV com escolha de período (e de colunas, no histórico).
+A aba Finanças controla o dinheiro do projeto em três sub-abas, que conversam entre si: a **Planilha Orçamentária** diz quanto se pretende gastar e receber, o **Histórico de Pagamento** registra o que de fato entrou e saiu, e o **Desembolso** compara as duas coisas mês a mês. O 🔍 controle deslizante (ou `Ctrl` + roda do mouse) ajusta o zoom das tabelas.
+
+### 📋 Planilha Orçamentária
+
+- **+ Gasto** / **+ Receita** abrem o diálogo do item: nome, categoria (sugere as já usadas), **Quantidade**, **Unidade** (cachê, mensal, diária, hora…), **Qtd. de unidade** e **Valor unitário**. O **Total** é calculado sozinho (quantidade × qtd. de unidade × valor unitário), mas pode ser digitado diretamente.
+- Os itens ficam agrupados em Receitas e Gastos e, dentro deles, por categoria, com subtotais. Para renomear uma categoria, edite-a na própria linha de total.
+- Os valores de um item só mudam pelo diálogo (botão ✎ na linha); ✕ exclui.
+- No topo aparecem o total de **Receitas**, de **Gastos** e o **Saldo** previsto.
+- A coluna **Distribuído** mostra quanto do total já foi distribuído pelos meses (no Desembolso) e a **Diferença** avisa quando a distribuição não fecha com o total.
+
+### 🧾 Histórico de Pagamento
+
+- **+ Transação** registra uma **saída** (padrão) ou **entrada**: data, valor, item da planilha a que pertence e destinatário/origem. O diálogo mostra quanto estava previsto para aquele item no mês e quanto já foi pago.
+- **👤 Destinatários:** cadastro de nome, telefone, e-mail e chave Pix, reutilizado em todas as transações.
+- **＋ Novo pagamento** (em cada saída) abre uma nova transação já com valor, item, destinatário e contrato copiados, ideal para pagamentos recorrentes. **Salvar e nova** mantém o diálogo aberto para lançar outra.
+- **Anexos:** cada transação guarda **Nota Fiscal**, **Comprovante** e **Contrato** (PDF, PNG, JPG ou JPEG), anexados pelo diálogo ou direto na tabela ("+ anexar"); 👁 abre o arquivo.
+- **📁 Pasta dos documentos:** configure uma vez o caminho completo da pasta onde ficam as notas e comprovantes e selecione-a; a partir daí, o caminho completo de cada arquivo escolhido dessa pasta é preenchido automaticamente (🔄 atualiza a lista de arquivos). A lista é guardada separadamente para cada projeto.
+- **🗂️ Anexos (ZIP):** baixa um ZIP com as notas, comprovantes e contratos das transações de um período (o navegador pede autorização para ler a pasta, se preciso).
+- **Filtros** por mês, item (serviço), destinatário e tipo (entradas/saídas); ✖ Filtros limpa todos. Os totais de saídas, entradas e saldo acompanham o filtro.
+- A coluna **Saldo acumulado** mostra o caixa após cada transação; a **Observação** pode ser editada direto na tabela.
+
+### 📊 Desembolso
+
+- Uma linha por item e uma coluna por mês (escolha o período em "Meses de … até …"; alterne entre ↓ Gastos e ↑ Receitas).
+- Em cada célula, digite o valor **previsto** para o mês; acima dele aparecem o **realizado** (soma do histórico) e o **% pago**, com uma barrinha colorida (parcial, 100% pago, acima do previsto, não previsto no mês).
+- **⚖ Distribuir** (ao passar o mouse no nome do item) divide uma quantia igualmente entre os meses escolhidos; **Limpar previsão** apaga a distribuição.
+- **🔎 Histórico** (ao passar o mouse numa célula ou no item) abre o Histórico de Pagamento já filtrado por aquele item e mês.
+- O nome de cada item mostra o % que ele representa do orçamento; as linhas de categoria e de total somam tudo, e o rodapé traz o **saldo acumulado real** (pelo histórico) e o **saldo previsto acumulado**.
+
+### Exportação
+
+- Cada sub-aba tem 🖨️ **PDF** e 📑 **CSV**, com escolha de período (e de colunas e saldo acumulado, no histórico).
 
 As durações são em dias corridos (fins de semana aparecem sombreados).
