@@ -8,7 +8,7 @@ Veja em menos de 3 minutos como usar o cronograma e a aba de finanças: [video/t
 
 ## Como usar
 
-Abra `index.html` no navegador (duplo clique). O programa sempre abre com um projeto vazio — use 📂 Abrir ou 🕘 Recentes para continuar um projeto (o da última sessão também volta com ↶ Desfazer). Clique em **?** para ver a ajuda.
+Abra `Gantt-Heaven.html` no navegador (duplo clique). O programa sempre abre com um projeto vazio — use 📂 Abrir ou 🕘 Recentes para continuar um projeto (o da última sessão também volta com ↶ Desfazer). Clique em **?** para ver a ajuda.
 
 - **Mover tarefa:** arraste a barra.
 - **Alterar início/fim:** arraste a borda esquerda/direita da barra.
