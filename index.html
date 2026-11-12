@@ -33,7 +33,7 @@ input,textarea,select{font:inherit;color:inherit}
 #projName:hover,#projName:focus{border-color:var(--line);background:#fafbfd;outline:none}
 .sep{width:1px;height:24px;background:var(--line);margin:0 2px}
 .zoom{display:flex;align-items:center;gap:6px;color:var(--muted)}
-#colMode,.tfilt{border:1px solid var(--line);border-radius:7px;padding:5px 6px;background:#fff;font:inherit;color:var(--text);cursor:pointer}
+#colMode,#weekNum,#weekFrom,.tfilt{border:1px solid var(--line);border-radius:7px;padding:5px 6px;background:#fff;font:inherit;color:var(--text);cursor:pointer}
 .tfilt{max-width:190px}
 .tfilt.on{border-color:var(--accent);background:#eef2ff;color:var(--accent);font-weight:600}
 #timeline{cursor:pointer}
@@ -421,6 +421,9 @@ dialog.xwide{width:min(940px,96vw)}
   <div class="sep"></div>
   <button id="btnToday">Hoje</button>
   <label class="zoom" title="Agrupar e destacar colunas">▦ Colunas <select id="colMode"><option value="day">Dias</option><option value="week">Semanas</option><option value="month">Meses</option></select></label>
+  <label class="zoom" title="Numeração das semanas no cabeçalho do cronograma (e nas exportações)">№ Sem. <select id="weekNum">
+    <option value="iso" title="Padrão ISO 8601">ISO</option><option value="year" title="Desde o começo do ano: a semana de 1º de janeiro é a S1">Do ano</option><option value="from" title="Desde uma data específica: a semana que contém a data é a S1">Desde…</option><option value="month" title="Reiniciar a numeração a cada mês: a semana que contém o dia 1º é a S1">Por mês</option>
+  </select><input type="date" id="weekFrom" title="A semana que contém esta data é a semana 1" style="display:none"></label>
   <button id="btnClearMarks" title="Remover todos os destaques de colunas" style="display:none">✖ Destaques</button>
   <div class="zoom">🔍 <input type="range" id="zoom" min="6" max="64" value="28" title="Zoom (Ctrl + roda do mouse)"></div>
   <div class="sep"></div>
@@ -683,6 +686,7 @@ dialog.xwide{width:min(940px,96vw)}
       <tr><td>Categorias</td><td>Botão 🏷️ Categorias. A borda da cápsula mostra a cor da categoria; escolha a categoria da tarefa com duplo clique nela.</td></tr>
       <tr><td>Membros</td><td>Botão 👥 Membros. Use os filtros de membro e categoria na barra para mostrar só as tarefas que atendem.</td></tr>
       <tr><td>Colunas</td><td>Em ▦ Colunas escolha Dias, Semanas ou Meses para agrupar e sombrear as colunas. Clique no cabeçalho para destacar aquele dia/semana/mês; clique num destaque para removê-lo.</td></tr>
+      <tr><td>Numeração das semanas</td><td>Em № Semanas escolha ISO, desde o começo do ano (a semana de 1º de janeiro é a S1), desde uma data (a semana que contém a data escolhida é a S1) ou reiniciar a cada mês (S1/mar, S2/mar…). Fica salvo no projeto e vale para o cabeçalho do cronograma, o PDF e a coluna opcional "Semanas" do PDF e do CSV.</td></tr>
       <tr><td>PDF</td><td>Botão 🖨️ PDF: escolha o período (de/até), se mostra os períodos destacados, se usa o nível de zoom da visualização e se inclui a tabela (e quais colunas); depois salve como PDF no diálogo de impressão.</td></tr>
       <tr><td>CSV</td><td>Botão 📑 CSV: exporta para planilha as tarefas de um período (de/até), escolhendo as colunas.</td></tr>
       <tr><td>Finanças</td><td>Aba 💰 Finanças: <b>Planilha Orçamentária</b> (itens de gastos e receitas com quantidade, unidade, valor unitário e total — altere pelo ✎ de cada item), <b>Histórico de Pagamento</b> (transações ligadas aos itens da planilha, com destinatários) e <b>Desembolso</b> (distribuição prevista por mês — edite o previsto direto em cada célula — comparada com o realizado).</td></tr>
@@ -777,7 +781,11 @@ function deserialize(o) {
   });
   const tids = new Set([...tasks.map(t => t.id), ...tasks.flatMap(t => t.sections.map(x => x.id))]); // tarefas e seções
   tasks.forEach(t => t.deps = [...new Set(t.deps)].filter(d => tids.has(d) && d !== t.id));
-  const view = { columns: ['day', 'week', 'month'].includes(o.view && o.view.columns) ? o.view.columns : 'day' };
+  const ov = o.view || {};
+  const view = { columns: ['day', 'week', 'month'].includes(ov.columns) ? ov.columns : 'day',
+    weekNum: ['iso', 'year', 'from', 'month'].includes(ov.weekNum) ? ov.weekNum : 'iso', // numeração das semanas
+    weekFrom: Number.isFinite(toIdx(ov.weekFrom)) ? String(ov.weekFrom) : '' }; // data da semana 1 (modo 'from')
+  if (view.weekNum === 'from' && !view.weekFrom) view.weekNum = 'iso';
   const marks = (o.marks || []).map(m => ({ s: toIdx(m.from), e: toIdx(m.to) + 1 })).filter(m => Number.isFinite(m.s) && Number.isFinite(m.e) && m.e > m.s);
   return { name: String(o.name || 'Projeto'), members, categories, tasks, view, marks, finance: normFinance(o.finance) };
 }
@@ -938,6 +946,9 @@ function render() {
   $('#projName').value = state.name;
   document.title = (dirty ? '• ' : '') + state.name + ' — Gantt Heaven';
   $('#colMode').value = state.view.columns;
+  $('#weekNum').value = state.view.weekNum || 'iso';
+  $('#weekFrom').style.display = state.view.weekNum === 'from' ? '' : 'none';
+  if (document.activeElement !== $('#weekFrom')) $('#weekFrom').value = state.view.weekFrom || '';
   $('#btnClearMarks').style.display = state.marks.length ? '' : 'none';
   $('#btnClearMarks').textContent = `✖ Destaques${state.marks.length > 1 ? ` (${state.marks.length})` : ''}`;
   $('#btnUndo').disabled = !undoStack.length; $('#btnRedo').disabled = !redoStack.length;
@@ -997,6 +1008,23 @@ function isoWeek(idx) {
   const y = new Date(thu * DAY).getUTCFullYear();
   return Math.floor((thu - Math.round(Date.UTC(y, 0, 1) / DAY)) / 7) + 1;
 }
+// número da semana (segunda a domingo) do dia idx conforme a numeração escolhida no cronograma:
+// 'iso' (padrão ISO 8601), 'year' (a semana que contém 1º de janeiro é a 1), 'from' (a semana que contém
+// a data escolhida é a 1; antes dela não há número) e 'month' (recomeça em 1 na semana que contém o dia 1º).
+// Retorna { n, m } (m = mês ao qual a semana pertence, só no modo 'month') ou null.
+function weekNo(idx, view = state.view) {
+  const mon = idx - mod(idx + 3, 7), monOf = i => i - mod(i + 3, 7);
+  switch (view.weekNum) {
+    case 'year': { const y = new Date((mon + 6) * DAY).getUTCFullYear(); return { n: Math.floor((mon - monOf(Math.round(Date.UTC(y, 0, 1) / DAY))) / 7) + 1 }; }
+    case 'from': { const f = toIdx(view.weekFrom); if (!Number.isFinite(f)) break; const n = Math.floor((mon - monOf(f)) / 7) + 1; return n >= 1 ? { n } : null; }
+    case 'month': { const d = new Date((mon + 6) * DAY), y = d.getUTCFullYear(), m = d.getUTCMonth(); return { n: Math.floor((mon - monOf(Math.round(Date.UTC(y, m, 1) / DAY))) / 7) + 1, m }; }
+  }
+  return { n: isoWeek(idx) };
+}
+// rótulo curto: "S12" (ou "S2/mar" quando a numeração recomeça a cada mês); '' se não houver número
+function weekTag(idx) { const w = weekNo(idx); return w ? `S${w.n}${w.m !== undefined ? '/' + MONTHS[w.m] : ''}` : ''; }
+const WEEKNUM_DESC = { iso: 'ISO', year: 'desde o começo do ano', month: 'reiniciada a cada mês' };
+function weekNumDesc() { const v = state.view; return v.weekNum === 'from' ? `desde ${fmtFull(toIdx(v.weekFrom))}` : WEEKNUM_DESC[v.weekNum] || 'ISO'; }
 const MONTHS = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const TODAY_COLOR = '#e5484d';
 
@@ -1043,8 +1071,9 @@ function renderTimeline() {
   for (const g of segments(range.start, range.days, topUnit)) {
     const x = (g.s - range.start) * dayW, w = (g.e - g.s) * dayW;
     if (topUnit === 'week') {
-      const mid = new Date((g.full[0] + 3) * DAY), wk = isoWeek(g.full[0]);
-      const label = w < 50 ? '' : dayW * 7 >= 110 && w >= 100 ? `Sem ${wk} · ${MONTHS[mid.getUTCMonth()]}` : `S${wk}`;
+      const mid = new Date((g.full[0] + 3) * DAY), wk = weekNo(g.full[0]);
+      const mon = wk && wk.m !== undefined ? wk.m : mid.getUTCMonth(); // mês da numeração (modo "a cada mês") ou o da quinta-feira
+      const label = w < 50 || !wk ? '' : dayW * 7 >= 110 && w >= 100 ? `Sem ${wk.n} · ${MONTHS[mon]}` : weekTag(g.full[0]);
       s += `<text x="${x + w / 2}" y="17" text-anchor="middle" class="mlbl" style="fill:#6b7385;font-weight:600">${label}</text>`;
       s += `<line x1="${x}" x2="${x}" y1="6" y2="${HEAD}" stroke="#e4e7ef"/>`;
     } else {
@@ -1369,6 +1398,7 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
   render();
 
   const W = LW + (withChart ? days * dw : 0);
+  const weekShown = state.view.columns !== 'month' && dw * 7 >= 64; // o cabeçalho do gráfico mostra as semanas (ver renderTimeline)
   // legenda: só os membros e categorias que aparecem no que foi exportado, em linhas "Membros:" e "Categorias:"
   const usedM = new Set(rowList.flatMap(r => r.s ? [...(r.s.members || []), ...r.t.members] : r.t.members)), usedC = new Set(rowList.map(r => r.t.category).filter(Boolean));
   const legM = opts.legendMembers === false ? [] : state.members.filter(m => usedM.has(m.id));
@@ -1440,7 +1470,7 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(state.name)}</title><style>${css}</style></head><body>
     <div class="sheet">
       <div class="ph"><div style="display:flex;align-items:baseline;gap:12px"><h1>${esc(state.name)}</h1><span style="margin-left:auto;color:#6b7385;font-size:12px">Gerado em ${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span></div>
-        <div class="meta"><span>${fmtLong(from)} → ${fmtLong(to)} · ${plural(days)} · ${tasks.length} tarefa${tasks.length === 1 ? '' : 's'}${fdesc ? ` · filtro — ${esc(fdesc)}` : ''}</span></div>${legend}
+        <div class="meta"><span>${fmtLong(from)} → ${fmtLong(to)} · ${plural(days)} · ${tasks.length} tarefa${tasks.length === 1 ? '' : 's'}${fdesc ? ` · filtro — ${esc(fdesc)}` : ''}${(withChart && weekShown) || cols.some(c => c.key === 'weeks') ? ` · semanas: numeração ${esc(weekNumDesc())}` : ''}</span></div>${legend}
       </div>
       <div class="pg">
         ${LW ? `<div class="pcorner"><div class="prow">${headCells}</div></div>` : ''}
@@ -1460,10 +1490,16 @@ const TABLE_COLS = [
   { key: 'start', label: 'Início', w: 60 },
   { key: 'end', label: 'Fim', w: 60 },
   { key: 'duration', label: 'Dias', w: 34 },
+  { key: 'weeks', label: 'Semanas', w: 74 },
   { key: 'team', label: 'Time', w: 74 },
 ];
 const CSV_EXTRA = [{ key: 'progress', label: 'Progresso (%)' }, { key: 'deps', label: 'Depende de' }, { key: 'notes', label: 'Notas' }];
-const ALL_TABLE_KEYS = TABLE_COLS.map(c => c.key);
+const ALL_TABLE_KEYS = TABLE_COLS.map(c => c.key).filter(k => k !== 'weeks'); // padrão; "Semanas" é opcional
+// semanas que o intervalo [a, b] (inclusivo) ocupa, na numeração escolhida: "S3" ou "S3–S5"
+function weekSpan(a, b) {
+  const x = weekTag(a) || '—', y = weekTag(b) || '—';
+  return x === y ? x : `${x}–${y}`;
+}
 
 // preferências de exportação (por navegador, não fazem parte do projeto)
 const PREFS = 'gantt-heaven:prefs';
@@ -1495,6 +1531,7 @@ function pdfSecCell(key, t, sec, showDone) {
     case 'start': return `<span>${fmt(a)}</span>`;
     case 'end': return `<span>${fmt(b)}</span>`;
     case 'duration': return `<span class="pr">${sec.dur}</span>`;
+    case 'weeks': return `<span>${weekSpan(a, b)}</span>`;
     case 'team': return `<span class="avs">${avatarsHTML(sec.members || [])}</span>`;
   }
   return '<span></span>';
@@ -1508,6 +1545,7 @@ function pdfCell(key, t, i, showStrip) {
     case 'start': return `<span>${fmt(t.start)}</span>`;
     case 'end': return `<span>${fmt(t.start + t.duration - 1)}</span>`;
     case 'duration': return `<span class="pr">${t.duration}</span>`;
+    case 'weeks': return `<span>${weekSpan(t.start, t.start + t.duration - 1)}</span>`;
     case 'team': return `<span class="avs">${avatarsHTML(t.members)}</span>`;
   }
   return '<span></span>';
@@ -1522,6 +1560,7 @@ const CSV_VAL = {
   start: t => fmtFull(t.start),
   end: t => fmtFull(t.start + t.duration - 1),
   duration: t => t.duration,
+  weeks: t => weekSpan(t.start, t.start + t.duration - 1),
   team: t => t.members.map(member).filter(Boolean).map(m => m.name).join(', '),
   progress: t => t.progress,
   deps: t => { const m = secMap(); return t.deps.map(d => depNode(d, m)).filter(Boolean).map(nodeName).join(', '); },
@@ -2162,6 +2201,19 @@ $('#btnSaveAs').onclick = () => saveFile(true);
 $('#btnPdf').onclick = exportPDF;
 $('#btnCsv').onclick = exportCSV;
 $('#colMode').addEventListener('change', e => { const v = e.target.value; mutate(() => state.view.columns = v); });
+$('#weekNum').addEventListener('change', e => {
+  const v = e.target.value;
+  if (v === 'from' && !state.view.weekFrom) { // sem data ainda: começa pela segunda-feira do início do projeto (ou desta semana)
+    const s = state.tasks.length ? projectSpan()[0] : todayIdx();
+    mutate(() => { state.view.weekNum = v; state.view.weekFrom = fromIdx(s - mod(s + 3, 7)); });
+    $('#weekFrom').focus();
+  } else mutate(() => state.view.weekNum = v);
+});
+$('#weekFrom').addEventListener('change', e => {
+  const v = e.target.value;
+  if (!Number.isFinite(toIdx(v))) { e.target.value = state.view.weekFrom || ''; return; }
+  mutate(() => state.view.weekFrom = v);
+});
 $('#btnClearMarks').onclick = () => mutate(() => state.marks = []);
 // clique no cabeçalho: destaca (ou remove) o dia / semana / mês
 timelineEl.addEventListener('click', e => {
