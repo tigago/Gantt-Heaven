@@ -524,6 +524,7 @@ dialog.xwide{width:min(940px,96vw)}
       </select></label>
       <label>Orientação<select name="orient"><option value="landscape">Paisagem</option><option value="portrait">Retrato</option></select></label>
     </div>
+    <label class="check" title="Mantém a largura dos dias como está na tela. No papel Automático, a página cresce para o diagrama caber sem reduzir; com um tamanho de papel escolhido, o diagrama é reduzido para caber nele."><input type="checkbox" name="viewZoom"> Usar o nível de zoom da visualização <span id="pdfZoomInfo" style="color:var(--muted);font-size:12px"></span></label>
     <label class="check"><input type="checkbox" name="withChart"> Incluir o cronograma (gráfico) <span style="color:var(--muted);font-size:12px">— desmarcado, imprime só a tabela</span></label>
     <label class="check"><input type="checkbox" name="withTable"> Incluir a tabela de tarefas</label>
     <div id="pdfCols" class="colpick" title="Colunas da tabela"></div>
@@ -682,7 +683,7 @@ dialog.xwide{width:min(940px,96vw)}
       <tr><td>Categorias</td><td>Botão 🏷️ Categorias. A borda da cápsula mostra a cor da categoria; escolha a categoria da tarefa com duplo clique nela.</td></tr>
       <tr><td>Membros</td><td>Botão 👥 Membros. Use os filtros de membro e categoria na barra para mostrar só as tarefas que atendem.</td></tr>
       <tr><td>Colunas</td><td>Em ▦ Colunas escolha Dias, Semanas ou Meses para agrupar e sombrear as colunas. Clique no cabeçalho para destacar aquele dia/semana/mês; clique num destaque para removê-lo.</td></tr>
-      <tr><td>PDF</td><td>Botão 🖨️ PDF: escolha o período (de/até), se mostra os períodos destacados e se inclui a tabela (e quais colunas); depois salve como PDF no diálogo de impressão.</td></tr>
+      <tr><td>PDF</td><td>Botão 🖨️ PDF: escolha o período (de/até), se mostra os períodos destacados, se usa o nível de zoom da visualização e se inclui a tabela (e quais colunas); depois salve como PDF no diálogo de impressão.</td></tr>
       <tr><td>CSV</td><td>Botão 📑 CSV: exporta para planilha as tarefas de um período (de/até), escolhendo as colunas.</td></tr>
       <tr><td>Finanças</td><td>Aba 💰 Finanças: <b>Planilha Orçamentária</b> (itens de gastos e receitas com quantidade, unidade, valor unitário e total — altere pelo ✎ de cada item), <b>Histórico de Pagamento</b> (transações ligadas aos itens da planilha, com destinatários) e <b>Desembolso</b> (distribuição prevista por mês — edite o previsto direto em cada célula — comparada com o realizado).</td></tr>
       <tr><td>Recentes</td><td>Botão 🕘 Recentes: reabre um dos últimos 10 projetos abertos ou salvos. Quando o navegador permite acesso a arquivos, abre o próprio arquivo (pode pedir permissão); senão, abre a cópia guardada no navegador no momento em que foi aberto/salvo.</td></tr>
@@ -1350,7 +1351,8 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
   let TOP = 70; // altura do cabeçalho; recalculada abaixo conforme as linhas da legenda
   const PW = Math.floor((mw - 20) * pxmm), PH = Math.floor((mh - 20) * pxmm) - 18; // área útil (margem de 10 mm); A4 paisagem ≈ 1047×700 px
   const pageSize = `${paper === 'auto' || paper === 'fit' ? 'A4' : paper} ${orient}`;
-  const dw = clamp(Math.floor((PW - LW) / days), 4, 36);
+  const viewZoom = !!opts.viewZoom;
+  const dw = viewZoom ? dayW : clamp(Math.floor((PW - LW) / days), 4, 36); // zoom da tela ou largura que cabe no papel
 
   // renderiza com o intervalo do projeto, sem seleção/destaque, e restaura a tela
   const saved = { range, dayW, selectedId, highlightMember, highlightCategory };
@@ -1385,6 +1387,9 @@ function buildExportHTML(from, to, onlyIn = true, opts = {}) {
   let page, zoom;
   if (!withChart && paper !== 'fit') { page = pageSize; zoom = Math.min(1, PW / W); } // só a tabela: segue em várias páginas se precisar
   else if (paper === 'fit') { page = `${Math.ceil(W + 76)}px ${Math.ceil(H + 76)}px`; zoom = 1; }
+  else if (viewZoom && paper === 'auto') { // zoom da tela: A4 se couber sem reduzir; senão, página do tamanho do diagrama
+    if (z >= 1) { page = pageSize; zoom = 1; } else { page = `${Math.ceil(W + 76)}px ${Math.ceil(H + 76)}px`; zoom = 1; }
+  }
   else if (z >= 0.45 || paper !== 'auto') { page = pageSize; zoom = z; } // tamanho escolhido: o diagrama é reduzido para caber
   else { page = `${Math.ceil(W + 76)}px ${Math.ceil(H + 76)}px`; zoom = 1; } // projeto grande: página única do tamanho do diagrama
 
@@ -1625,6 +1630,8 @@ function exportPDF() {
   pdfForm.withTable.checked = prefs.pdfTable;
   pdfForm.withChart.checked = prefs.pdfChart !== false;
   pdfForm.paper.value = prefs.pdfPaper || 'auto'; pdfForm.orient.value = prefs.pdfOrient || 'landscape'; syncPdfPaper();
+  pdfForm.viewZoom.checked = !!prefs.pdfViewZoom;
+  $('#pdfZoomInfo').textContent = `(${dayW} px por dia)`;
   syncPdfParts();
   const fdesc = filterDesc();
   pdfForm.useFilt.disabled = !fdesc; pdfForm.useFilt.checked = !!fdesc;
@@ -1646,7 +1653,7 @@ pdfForm.onlyIn.addEventListener('change', updatePdfInfo);
 function syncPdfParts() {
   if (!pdfForm.withChart.checked) pdfForm.withTable.checked = true;
   pdfForm.withTable.disabled = !pdfForm.withChart.checked;
-  for (const n of ['showMarks', 'showToday', 'showProgress']) pdfForm[n].closest('label').style.opacity = pdfForm.withChart.checked ? '' : '.5'; // só valem para o gráfico
+  for (const n of ['showMarks', 'showToday', 'showProgress', 'viewZoom']) pdfForm[n].closest('label').style.opacity = pdfForm.withChart.checked ? '' : '.5'; // só valem para o gráfico
   $('#pdfCols').classList.toggle('off', !pdfForm.withTable.checked);
 }
 pdfForm.withTable.addEventListener('change', syncPdfParts);
@@ -1663,11 +1670,11 @@ pdfForm.addEventListener('submit', e => {
   const cols = pickedCols($('#pdfCols'));
   if (!pdfForm.withChart.checked && !cols.length) { toast('Escolha ao menos uma coluna da tabela'); return; }
   pdfDlg.close();
-  prefs.pdfTable = pdfForm.withTable.checked; prefs.pdfCols = cols; prefs.pdfChart = pdfForm.withChart.checked; prefs.pdfPaper = pdfForm.paper.value; prefs.pdfOrient = pdfForm.orient.value;
+  prefs.pdfTable = pdfForm.withTable.checked; prefs.pdfCols = cols; prefs.pdfChart = pdfForm.withChart.checked; prefs.pdfPaper = pdfForm.paper.value; prefs.pdfOrient = pdfForm.orient.value; prefs.pdfViewZoom = pdfForm.viewZoom.checked;
   if (state.marks.length) prefs.pdfMarks = pdfForm.showMarks.checked;
   prefs.pdfToday = pdfForm.showToday.checked; prefs.pdfProgress = pdfForm.showProgress.checked; prefs.pdfSecs = pdfForm.withSecs.checked; prefs.pdfLegM = pdfForm.legM.checked; prefs.pdfLegC = pdfForm.legC.checked;
   savePrefs();
-  printPDF(a, b, pdfForm.onlyIn.checked, { cols: pdfForm.withTable.checked ? cols : [], marks: pdfForm.showMarks.checked, filters: pdfForm.useFilt.checked && !pdfForm.useFilt.disabled, chart: pdfForm.withChart.checked, paper: pdfForm.paper.value, orient: pdfForm.orient.value, today: pdfForm.showToday.checked, progress: pdfForm.showProgress.checked, sections: pdfForm.withSecs.checked, legendMembers: pdfForm.legM.checked, legendCategories: pdfForm.legC.checked });
+  printPDF(a, b, pdfForm.onlyIn.checked, { cols: pdfForm.withTable.checked ? cols : [], marks: pdfForm.showMarks.checked, filters: pdfForm.useFilt.checked && !pdfForm.useFilt.disabled, chart: pdfForm.withChart.checked, paper: pdfForm.paper.value, orient: pdfForm.orient.value, today: pdfForm.showToday.checked, progress: pdfForm.showProgress.checked, sections: pdfForm.withSecs.checked, legendMembers: pdfForm.legM.checked, legendCategories: pdfForm.legC.checked, viewZoom: pdfForm.viewZoom.checked });
 });
 
 function printPDF(from, to, onlyIn, opts) {

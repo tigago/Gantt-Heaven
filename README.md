@@ -19,7 +19,7 @@ Abra `index.html` no navegador (duplo clique). O programa sempre abre com um pro
 - **Salvar:** salvamento automático no navegador + `Ctrl+S` grava um arquivo `.ganttheaven` (`Ctrl+O` abre; também é possível arrastar o arquivo para a janela). Arquivos `.json` antigos continuam abrindo.
 - **Colunas:** em ▦ Colunas escolha Dias, Semanas ou Meses para agrupar/sombrear as colunas. Clique no cabeçalho para destacar aquele dia, semana ou mês (clique de novo para remover).
 - **Recentes:** botão 🕘 Recentes reabre os últimos 10 projetos abertos/salvos (o próprio arquivo, quando o navegador permite acesso a arquivos; senão, a cópia guardada no navegador).
-- **PDF:** botão 🖨️ PDF (`Ctrl+P`): escolha o período (de/até ou atalhos como "Este mês"), se mostra os períodos destacados e se inclui a tabela (e quais colunas). Depois "Salvar como PDF".
+- **PDF:** botão 🖨️ PDF (`Ctrl+P`): escolha o período (de/até ou atalhos como "Este mês"), se mostra os períodos destacados, se usa o nível de zoom da visualização (a largura dos dias como está na tela) e se inclui a tabela (e quais colunas). Depois "Salvar como PDF".
 - **CSV:** botão 📑 CSV exporta para planilha as tarefas de um período (de/até ou atalhos), com escolha de colunas (inclui extras: progresso, dependências, notas) e separador.
 - **Atalhos:** `Ctrl+Z`/`Ctrl+Y` desfazer/refazer, `Insert` nova tarefa, `Delete` excluir, `Enter` editar, `Ctrl` + roda do mouse = zoom.
 
